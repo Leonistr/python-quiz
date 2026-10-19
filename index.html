@@ -1,0 +1,15 @@
+<!DOCTYPE html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Контрольная по Python</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.css">
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js"></script>
+<link rel="stylesheet" href="style.css"></head><body>
+<header><h1>Контрольная работа: Python (начальный уровень)</h1><div id="status">Загрузка Python…</div></header>
+<section id="login" class="card"><h2>Данные студента</h2>
+<label>ФИО*<input id="fio" required placeholder="Иванов Иван Иванович"></label>
+<label>Группа*<input id="group" required placeholder="ИС-21"></label>
+<button id="start">Начать</button><p id="loginErr" class="err"></p></section>
+<main id="quiz" hidden></main>
+<section id="finishBox" class="card" hidden><button id="finish">Завершить и отправить</button><div id="result"></div></section>
+<script src="config.js"></script><script src="tasks.js"></script><script src="app.js"></script></body></html>
