@@ -28,3 +28,9 @@ pre.out{background:#111;color:#0f0;padding:8px;min-height:18px;white-space:pre-w
 .win{animation:pulse 1s infinite}@keyframes pulse{50%{transform:scale(1.08)}}
 .mc label{display:block;padding:6px;border:1px solid #ddd;border-radius:6px;margin:4px 0;cursor:pointer}
 #reveal[hidden]{display:none}
+.choice{display:flex;gap:16px;margin:12px 0;flex-wrap:wrap}.bigbtn{flex:1;min-width:200px;padding:32px 12px;font-size:24px;font-weight:bold;border-radius:14px}#c-join{background:#1a9b4b}.tcode{font-family:monospace;font-size:15px}
+.layout{display:flex;gap:14px;align-items:flex-start}.content{flex:1;min-width:0}
+aside#side{width:240px;flex:none;position:sticky;top:8px;background:#fff;border-radius:10px;padding:10px;box-shadow:0 1px 4px #0002;margin-top:12px;max-height:calc(100vh - 20px);overflow:auto}
+aside summary{font-weight:bold;cursor:pointer;margin-bottom:6px}.sd-team{padding:6px;border-radius:8px;margin:4px 0;border:2px solid transparent}.sd-team.mine{border-color:var(--b);background:#eef3ff}
+.sd-name{font-weight:600;font-size:14px}.bar{height:8px;background:#e3e8f2;border-radius:4px;overflow:hidden;margin:4px 0}.bar i{display:block;height:100%;background:linear-gradient(90deg,#1a9b4b,#7ed957)}
+@media(max-width:760px){.layout{flex-direction:column}aside#side{width:auto;position:static;max-height:none;box-sizing:border-box;width:100%}}
