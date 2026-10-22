@@ -35,3 +35,6 @@ aside summary{font-weight:bold;cursor:pointer;margin-bottom:6px}.sd-team{padding
 .sd-name{font-weight:600;font-size:14px}.bar{height:8px;background:#e3e8f2;border-radius:4px;overflow:hidden;margin:4px 0}.bar i{display:block;height:100%;background:linear-gradient(90deg,#1a9b4b,#7ed957)}
 @media(max-width:760px){.layout{flex-direction:column}aside#side{width:auto;position:static;max-height:none;box-sizing:border-box;width:100%}}
 .pill.solo{background:#ffe0b2;font-weight:bold}.team.solo{border-style:dashed}#c-solo{background:#e67e22}
+pre.code{background:#f6f8fc;border:1px solid #dde3ee;border-radius:6px;padding:8px;white-space:pre;overflow:auto;font-size:13px}
+ol.order{padding-left:28px}ol.order li{margin:4px 0;padding:4px;border:1px solid #dde;border-radius:6px;background:#fafbff}ol.order li button{padding:2px 8px;margin:0 4px 0 0}ol.order code{white-space:pre}
+textarea.freeans{width:100%;box-sizing:border-box;font:inherit;padding:8px}.pill.fun{background:#ffe6f0}.pill.free{background:#e8f4ff}.st-review{color:#2d6cdf;font-weight:bold}

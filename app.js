@@ -1,6 +1,7 @@
 'use strict';
 const POLL_MS = 2000;
-const CAT = { code: 'Python', logic: 'Логика', arch: 'Архитектура ЭВМ', math: 'Математика' };
+const CAT = { code: 'Python', fun: 'Python-игра', logic: 'Логика', arch: 'Архитектура ЭВМ', math: 'Математика', free: 'Свободный ответ' };
+const catLabel = tk => tk.cat === 'fun' ? '🎮 ' + tk.sub : tk.cat === 'free' ? '📝 ' + CAT.free : CAT[tk.cat] || '';
 const STATUS = { lobby: 'Сбор команд', election: 'Выборы капитанов', running: 'Решение задач', closed: 'Завершено' };
 const TASK = Object.fromEntries(BANK.map(t => [t.id, t]));
 const $ = s => document.querySelector(s);
@@ -27,7 +28,7 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js'); wReady = false;
+  worker = new Worker('pyworker.js?v=5'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
 function runPy(code, tests) {
@@ -251,7 +252,7 @@ function maybeReveal(s) {
 
 // ---------- задачи ----------
 let taskCards = {};
-const ST = { assigned: 'в работе', solved: 'решена ✔', failed: 'не решена ✘' };
+const ST = { assigned: 'в работе', solved: 'решена ✔', failed: 'не решена ✘', review: 'на проверке 📝' };
 function renderRunning(main, s) {
   const t = s.team, isCap = t.captain === ME.mid, name = mid => (t.members.find(m => m.mid === mid) || {}).fio || '—';
   const keep = main.contains(document.activeElement) && document.activeElement.tagName === 'SELECT';
@@ -261,7 +262,7 @@ function renderRunning(main, s) {
       const sel = isCap && x.st !== 'solved' && x.st !== 'failed'
         ? `<select data-assign="${id}"><option value="">— не назначена —</option>${t.members.map(m => `<option value="${m.mid}" ${x.to === m.mid ? 'selected' : ''}>${esc(m.fio)}</option>`).join('')}</select>`
         : esc(x.to ? name(x.to) : '—');
-      return `<tr><td><span class="pill ${tk.cat}">${CAT[tk.cat] || ''}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></td><td>${sel}</td><td class="st-${x.st || ''}">${x.to || x.st ? ST[x.st] || '' : ''}${x.att ? ' <span class="muted">(попыток: ' + x.att + ')</span>' : ''}</td></tr>`;
+      return `<tr><td><span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></td><td>${sel}</td><td class="st-${x.st || ''}">${x.to || x.st ? ST[x.st] || '' : ''}${x.att ? ' <span class="muted">(попыток: ' + x.att + ')</span>' : ''}</td></tr>`;
     }).join('');
     const done = Object.values(t.tasks).filter(x => x.st === 'solved').length;
     if (t.solo) main.innerHTML = `<div class="card"><h3>🧑‍💻 Соло: решено ${done} из ${s.pool.length} · ${t.pts} баллов</h3></div><h2>Мои задачи</h2>`;
@@ -279,10 +280,12 @@ function renderRunning(main, s) {
   mine.forEach(id => { if (!taskCards[id]) taskCards[id] = makeCard(TASK[id], box); updateCard(taskCards[id], t.tasks[id]); });
 }
 function makeCard(tk, box) {
-  const el = document.createElement('div'); el.className = 'card task';
-  const left = { mc: 1, num: 2, text: 2 }[tk.kind];
-  el.innerHTML = `<h3><span class="pill ${tk.cat}">${CAT[tk.cat]}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></h3><p>${tk.desc}</p>
+  const el = document.createElement('div'); el.className = 'card task'; el.dataset.tid = tk.id;
+  const left = { mc: 1, num: 2, text: 2, order: 2 }[tk.kind];
+  el.innerHTML = `<h3><span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></h3><p>${tk.desc}</p>
     ${tk.kind === 'code' ? `<textarea></textarea><button class="run">▶ Запустить</button><button class="send">✔ Проверить и сдать</button><pre class="out"></pre>`
+      : tk.kind === 'order' ? `<ol class="order">${tk.options.map((o, i) => `<li data-i="${i}"><button class="sec up">↑</button><button class="sec dn">↓</button><code>${esc(o).replace(/ /g, '&nbsp;')}</code></li>`).join('')}</ol><button class="send">Проверить порядок</button> <span class="muted">Попыток: ${left}</span>`
+      : tk.kind === 'free' ? `<textarea class="freeans" rows="6" placeholder="Ваш ответ (минимум пару предложений)"></textarea><br><button class="send">Отправить на проверку</button> <span class="muted">Проверит преподаватель, бонус до 3 баллов</span>`
       : tk.kind === 'mc' ? `<div class="mc">${tk.options.map((o, i) => `<label><input type="radio" name="o_${tk.id}" value="${i}"> ${esc(o)}</label>`).join('')}</div><button class="send">Ответить</button> <span class="muted">Попыток: ${left}</span>`
       : `<input class="ans" placeholder="Ваш ответ"> <button class="send">Ответить</button> <span class="muted">Попыток: ${left}</span>`}
     <div class="res"></div>`;
@@ -301,7 +304,21 @@ function makeCard(tk, box) {
       try { await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, passed: true, src: c.ed.getValue() }); } catch (x) { e.target.disabled = false; }
     };
   } else {
+    if (tk.kind === 'order') el.querySelectorAll('.order li').forEach(li => {
+      li.querySelector('.up').onclick = () => li.previousElementSibling && li.parentNode.insertBefore(li, li.previousElementSibling);
+      li.querySelector('.dn').onclick = () => li.nextElementSibling && li.parentNode.insertBefore(li.nextElementSibling, li);
+    });
+    if (tk.kind === 'free') { const ta = el.querySelector('.freeans'), k = 'pq_free_' + ME.code + '_' + tk.id; ta.value = store.get(k) || ''; ta.oninput = () => store.set(k, ta.value); }
     el.querySelector('.send').onclick = async e => {
+      if (tk.kind === 'free') {
+        const txt = el.querySelector('.freeans').value.trim(); if (txt.length < 10) return toast('Напишите развёрнутый ответ');
+        if (!confirm('Отправить ответ преподавателю? Изменить будет нельзя.')) return;
+        try { await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, answer: txt }, e.target); toast('📝 Отправлено на проверку'); } catch (x) {} return;
+      }
+      if (tk.kind === 'order') {
+        const ans = [...el.querySelectorAll('.order li')].map(li => li.dataset.i).join(',');
+        try { const r = await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, answer: ans }, e.target); toast(r.correct ? '✔ Верно!' : r.left ? '✘ Неверно, осталось попыток: ' + r.left : '✘ Неверно, попытки закончились'); } catch (x) {} return;
+      }
       const ans = tk.kind === 'mc' ? (el.querySelector('input[type=radio]:checked') || {}).value : el.querySelector('.ans').value.trim();
       if (ans == null || ans === '') return toast('Выберите или введите ответ');
       if (tk.kind === 'mc' && !confirm('Попытка одна. Отправить ответ?')) return;
@@ -311,9 +328,9 @@ function makeCard(tk, box) {
   return c;
 }
 function updateCard(c, x) {
-  const done = x.st === 'solved' || x.st === 'failed';
-  c.el.querySelector('.res').innerHTML = done ? `<p class="st-${x.st}">${x.st === 'solved' ? '✔ Задача решена! +' + c.tk.pts + ' б.' : '✘ Попытки закончились'}</p>` : (x.att ? `<p class="muted">Попыток использовано: ${x.att}</p>` : '');
-  c.el.querySelectorAll('button.send, input, .run').forEach(b => b.disabled = done);
+  const done = x.st === 'solved' || x.st === 'failed' || x.st === 'review';
+  c.el.querySelector('.res').innerHTML = done ? `<p class="st-${x.st}">${x.st === 'solved' ? '✔ Задача решена! +' + c.tk.pts + ' б.' : x.st === 'review' ? '📝 На проверке у преподавателя' : '✘ Попытки закончились'}</p>` : (x.att ? `<p class="muted">Попыток использовано: ${x.att}</p>` : '');
+  c.el.querySelectorAll('button.send, input, .run, textarea, .order button').forEach(b => b.disabled = done);
   if (c.ed) c.ed.setOption('readOnly', done);
 }
 function board(s) {

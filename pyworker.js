@@ -8,7 +8,7 @@ def __run(code, tests):
     try:
         with contextlib.redirect_stdout(buf): exec(code, ns)
         if tests is not None:
-            ns['OUT']=buf.getvalue(); exec(tests, ns); ok=True
+            ns['OUT']=buf.getvalue(); ns['SRC']=code; exec(tests, ns); ok=True
     except AssertionError as e:
         ok=False; msg='Тест не пройден' + (': '+str(e) if str(e) else '')
     except Exception:
