@@ -73,3 +73,5 @@ span.rx{display:inline-block}
 @keyframes pulse{50%{opacity:.55}}
 .rhelp{display:inline-block;font-size:12px;color:#2563eb;border-bottom:1px dashed #2563eb;cursor:help;margin:4px 0}.sd-r{font-size:14px}
 body:has(#finale) #toastbox{top:auto;bottom:16px}
+#blbadge{position:fixed;left:18px;bottom:18px;z-index:45;background:#f59e0b;color:#111;font-weight:700;padding:8px 14px;border-radius:20px;box-shadow:0 6px 20px #0003}
+.bl-res{text-align:center;max-width:360px}.bl-big{font-size:64px;font-weight:800}.ntoast.blitzres{background:#d97706}

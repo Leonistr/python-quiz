@@ -30,7 +30,7 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js?v=7'); wReady = false;
+  worker = new Worker('pyworker.js?v=8'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
 function runPy(code, tests) {
@@ -400,7 +400,7 @@ function onEvent(e) {
   else if (e.type === 'finish') { if (!(S.team && S.team.tid === e.tid)) ntoast(`🏁 ${/^Соло: /.test(e.team) ? e.team : 'Команда ' + e.team} закончила все задания! (место ${e.place})`, 7000, 'fin'); }
   else if (e.type === 'blitz' && !S.me) ntoast(`⚡ Блиц-раунд #${e.n} запущен`, 4000);
 }
-function closeExtras() { ['#chatfab', '#chatpanel', '#blitz', '#finale'].forEach(q => { const x = $(q); if (x) x.remove(); }); }
+function closeExtras() { ['#chatfab', '#chatpanel', '#blitz', '#finale', '#blbadge'].forEach(q => { const x = $(q); if (x) x.remove(); }); }
 const hhmm = at => new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 const REACT = ['👍', '😂', '🔥', '❓', '✅'];
 
@@ -484,34 +484,55 @@ function gotoTask(id) {
 }
 
 // ---------- блиц ----------
+function blitzBoard(b) {
+  const mine = b.mine ? (b.mine.ok ? `✅ Верно! +${b.mine.pts} б.` : '❌ Неверно') : 'Вы не успели ответить';
+  return `<h2>⚡ Блиц #${b.n}: итоги</h2><p><b>${mine}</b></p><table class="lb"><tr><th>#</th><th>Игрок</th><th>Время</th><th>Очки</th></tr>${(b.top || []).map((r, i) => `<tr><td>${['🥇', '🥈', '🥉'][i] || i + 1}</td><td>${esc(r.fio)}</td><td>${r.sec} с</td><td><b>+${r.pts}</b></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Никто не ответил верно</td></tr>'}</table><button id="bl-x">Закрыть</button>`;
+}
+function openBlitzBoard(b) {
+  let ov = $('#blitz'); if (!ov) { ov = document.createElement('div'); ov.id = 'blitz'; document.body.appendChild(ov); }
+  ov._p = 'board' + b.n; ov.innerHTML = `<div class="bl-box">${blitzBoard(b)}</div>`; $('#bl-x').onclick = () => ov.remove();
+}
+function blitzBadge(b) {
+  let bd = $('#blbadge');
+  if (!b) { if (bd) bd.remove(); return; }
+  if (!bd) { bd = document.createElement('div'); bd.id = 'blbadge'; document.body.appendChild(bd); }
+  const h = `⚡ Блиц: ответ принят, итоги через <span data-deadline="${b.end}"></span>`;
+  if (bd._h !== h) { bd.innerHTML = h; bd._h = h; }
+}
 function renderBlitz(s) {
   const b = s.blitz, ov0 = $('#blitz');
-  if (!b || !s.team || !TASK[b.task]) { if (ov0) ov0.remove(); return; }
-  const ended = !!b.top, key = 'pq_blitz_' + s.code + '_' + b.n;
-  if (store.get(key) && ended) { if (ov0) ov0.remove(); return; }
-  const phase = b.n + (ended ? 'e' : b.mine ? 'a' : 'q') + (ended ? JSON.stringify(b.top) : '');
+  if (!b || !s.team || !TASK[b.task]) { if (ov0) ov0.remove(); blitzBadge(null); return; }
+  const ended = !!b.top, tk = TASK[b.task];
+  if (ended) {
+    blitzBadge(null);
+    if (ov0 && ov0._p !== 'board' + b.n && !ov0._closing) ov0.remove();
+    const tk2 = 'pq_blitzt_' + s.code + '_' + b.n;
+    if (!store.get(tk2)) { store.set(tk2, 1); const mine = b.mine ? (b.mine.ok ? `✅ +${b.mine.pts}` : '❌ мимо') : 'без ответа'; const w = b.top[0];
+      ntoast(`⚡ Блиц #${b.n} окончен: ${mine}${w ? ' · 🥇 ' + w.fio : ''} — нажмите для таблицы`, 9000, 'blitzres', () => openBlitzBoard(S.blitz)); }
+    return;
+  }
+  if (b.mine) {                                   // ответил: коротко результат → бейдж в углу
+    blitzBadge(b);
+    if (ov0 && ov0._p !== 'res' + b.n && !ov0._closing) {
+      ov0._p = 'res' + b.n; ov0._closing = 1;
+      ov0.innerHTML = `<div class="bl-box bl-res"><div class="bl-big">${b.mine.ok ? '✅ +' + b.mine.pts : '❌'}</div><p>${b.mine.ok ? 'Верно!' : 'Неверно'} Итоги — когда время выйдет.</p></div>`;
+      setTimeout(() => ov0.remove(), 2000);
+    }
+    return;
+  }
+  blitzBadge(null);
+  const phase = 'q' + b.n;
   let ov = ov0; if (!ov) { ov = document.createElement('div'); ov.id = 'blitz'; document.body.appendChild(ov); }
   if (ov._p === phase) { const n = ov.querySelector('.bl-n'); if (n) n.textContent = b.answers || 0; return; }
   ov._p = phase;
-  const tk = TASK[b.task];
-  let body;
-  if (ended) {
-    const mine = b.mine ? (b.mine.ok ? `✔ Верно! +${b.mine.pts} б.` : '✘ Неверно') : 'Вы не успели ответить';
-    body = `<h2>⚡ Блиц #${b.n}: итоги</h2><p><b>${mine}</b></p><table class="lb"><tr><th>#</th><th>Игрок</th><th>Время</th><th>Очки</th></tr>${b.top.map((r, i) => `<tr><td>${['🥇', '🥈', '🥉'][i] || i + 1}</td><td>${esc(r.fio)}</td><td>${r.sec} с</td><td><b>+${r.pts}</b></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Никто не ответил верно</td></tr>'}</table><button id="bl-x">Закрыть</button>`;
-  } else if (b.mine) {
-    body = `<h2>⚡ Блиц #${b.n}</h2><div class="bl-timer" data-deadline="${b.end}"></div><p>Ответ принят! ${b.mine.ok ? '<b class="st-solved">✔ Верно, +' + b.mine.pts + ' б.</b>' : '<b class="st-failed">✘ Неверно</b>'}</p><p class="muted">Ответили: <span class="bl-n">${b.answers || 0}</span>. Итоги — когда время выйдет.</p>`;
-  } else {
-    const inp = tk.kind === 'mc' ? `<div class="mc">${tk.options.map((o, i) => `<label><input type="radio" name="bl" value="${i}"> ${esc(o)}</label>`).join('')}</div>` : `<input class="ans" id="bl-ans" placeholder="Ваш ответ" autocomplete="off">`;
-    body = `<h2>⚡ Блиц #${b.n}!</h2><div class="bl-timer" data-deadline="${b.end}"></div><p class="muted">Первые верные: 3 / 2 / 1 балл. Попытка одна!</p><h3>${esc(tk.title)}</h3><p>${tk.desc}</p>${inp}<button id="bl-go">Ответить</button> <span class="muted">Ответили: <span class="bl-n">${b.answers || 0}</span></span>`;
-  }
-  ov.innerHTML = `<div class="bl-box">${body}</div>`;
+  const inp = tk.kind === 'mc' ? `<div class="mc">${tk.options.map((o, i) => `<label><input type="radio" name="bl" value="${i}"> ${esc(o)}</label>`).join('')}</div>` : `<input class="ans" id="bl-ans" placeholder="Ваш ответ" autocomplete="off">`;
+  ov.innerHTML = `<div class="bl-box"><h2>⚡ Блиц #${b.n}!</h2><div class="bl-timer" data-deadline="${b.end}"></div><p class="muted">Первые верные: 3 / 2 / 1 балл. Попытка одна!</p><h3>${esc(tk.title)}</h3><p>${tk.desc}</p>${inp}<button id="bl-go">Ответить</button> <span class="muted">Ответили: <span class="bl-n">${b.answers || 0}</span></span></div>`;
   if ($('#bl-ans')) { guardInput($('#bl-ans'), 'blitz' + b.n); $('#bl-ans').focus(); $('#bl-ans').onkeydown = e => { if (e.key === 'Enter') $('#bl-go').click(); }; }
-  if ($('#bl-go')) $('#bl-go').onclick = async e => {
+  $('#bl-go').onclick = async e => {
     const ans = tk.kind === 'mc' ? (ov.querySelector('input[type=radio]:checked') || {}).value : $('#bl-ans').value.trim();
     if (ans == null || ans === '') return toast('Введите ответ');
-    try { const r = await act({ a: 'blitzAnswer', code: ME.code, mid: ME.mid, answer: ans, paste: pasteInfo('blitz' + b.n) }, e.target); toast(r.correct ? `⚡ Верно! +${r.pts}` : '✘ Мимо'); pollNow(); } catch (x) {}
+    try { await act({ a: 'blitzAnswer', code: ME.code, mid: ME.mid, answer: ans, paste: pasteInfo('blitz' + b.n) }, e.target); pollNow(); } catch (x) {}
   };
-  if ($('#bl-x')) $('#bl-x').onclick = () => { store.set(key, 1); ov.remove(); };
 }
 
 // ---------- финал команды ----------
