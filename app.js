@@ -30,7 +30,7 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js?v=10'); wReady = false;
+  worker = new Worker('pyworker.js?v=11'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
 function runPy(code, tests) {
@@ -57,7 +57,7 @@ async function pollNow() {
     if (!r.same) { lastV = r.v; lastCv = r.cv || ''; clockOff = r.now - Date.now(); S = r; const ev = r.events || []; if (lastEv >= 0) onEvents(ev); if (ev.length) lastEv = Math.max(lastEv, ...ev.map(e => e.id)); else if (lastEv < 0) lastEv = 0; render(); }
   } catch (e) {
     $('#net').textContent = '🔴 нет связи';
-    if (/удалили/.test(e.message)) { kickedScreen(); $('#net').textContent = ''; return; }
+    if (/удалил вас/.test(e.message)) { kickedScreen(e.message); $('#net').textContent = ''; return; }
     if (/не найден|доступа/.test(e.message)) { toast(e.message); store.del('pq_student'); store.del('pq_teacher'); stopPoll(); return home(); }
   }
   if (polling === fn) pollTimer = setTimeout(pollNow, document.hidden ? POLL_MS * 3 : POLL_MS);
@@ -65,11 +65,10 @@ async function pollNow() {
 let render = () => {};
 setInterval(() => { document.querySelectorAll('[data-deadline]').forEach(el => { const s = Math.max(0, Math.ceil((+el.dataset.deadline - Date.now() - clockOff) / 1000)); el.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }); }, 500);
 
-function kickedScreen() {
-  const s = store.get('pq_student'); if (s) { const k = store.get('pq_kicked') || {}; k[s.code] = 1; store.set('pq_kicked', k); }
-  store.del('pq_student'); stopPoll(); render = () => {}; setTimeout(() => $('#net').textContent = '', 0); if (typeof closeExtras === 'function') closeExtras(); document.body.classList.remove('student');
-  $('#app').innerHTML = `<div class="card kicked"><div style="font-size:56px">🚪</div><h2>Вас удалили из комнаты</h2><p class="muted">Преподаватель исключил вас из этой игры. Вернуться в неё с этого устройства нельзя.</p><button class="sec wide" id="k-home">На главную</button></div>`;
-  $('#k-home').onclick = () => wizard('who');
+function kickedScreen(msg) {
+  const s = store.get('pq_student'); if (s) { const m = store.get('pq_mids') || {}; delete m[s.code]; store.set('pq_mids', m); }
+  store.del('pq_student'); stopPoll(); render = () => {}; if (typeof closeExtras === 'function') closeExtras(); document.body.classList.remove('student');
+  wizard('who'); toast(msg || 'Преподаватель удалил вас из комнаты — можно зайти заново', 7000);
 }
 // ---------- главная ----------
 function home() {
@@ -84,7 +83,6 @@ function home() {
 const teamCode = (code, tid) => code + '-' + String(tid).replace(/^t/, '');
 function parseTeamCode(v) { const m = String(v).toUpperCase().replace(/\s/g, '').match(/^([A-Z2-9]{6})-?(\d+)$/); return m ? { code: m[1], tid: 't' + m[2] } : null; }
 async function joinRoom(code, btn) {
-  if ((store.get('pq_kicked') || {})[code]) { toast('⚠ Вас удалили из этой комнаты'); throw new Error('kicked'); }
   const L = store.get('pq_last'), mids = store.get('pq_mids') || {};
   const r = await act({ a: 'join', code, fio: L.fio, group: L.group, mid: mids[code] }, btn);
   mids[code] = r.mid; store.set('pq_mids', mids);
