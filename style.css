@@ -34,3 +34,4 @@ aside#side{width:240px;flex:none;position:sticky;top:8px;background:#fff;border-
 aside summary{font-weight:bold;cursor:pointer;margin-bottom:6px}.sd-team{padding:6px;border-radius:8px;margin:4px 0;border:2px solid transparent}.sd-team.mine{border-color:var(--b);background:#eef3ff}
 .sd-name{font-weight:600;font-size:14px}.bar{height:8px;background:#e3e8f2;border-radius:4px;overflow:hidden;margin:4px 0}.bar i{display:block;height:100%;background:linear-gradient(90deg,#1a9b4b,#7ed957)}
 @media(max-width:760px){.layout{flex-direction:column}aside#side{width:auto;position:static;max-height:none;box-sizing:border-box;width:100%}}
+.pill.solo{background:#ffe0b2;font-weight:bold}.team.solo{border-style:dashed}#c-solo{background:#e67e22}

@@ -89,9 +89,11 @@ function wizard(step) {
       <label>Группа*<input id="group" placeholder="ИС-21" value="${esc(L.group)}"></label>
       <button id="next">Далее →</button></div><p class="muted">Преподаватель? <a href="#teacher">Режим преподавателя</a></p>`,
     choice: `<div class="card"><h2>${esc(L.fio)}, что делаем?</h2><div class="choice">
-      <button class="bigbtn" id="c-create">➕<br>Создать команду</button><button class="bigbtn" id="c-join">👥<br>Войти в команду</button></div>${back('who')}</div>`,
+      <button class="bigbtn" id="c-create">➕<br>Создать команду</button><button class="bigbtn" id="c-join">👥<br>Войти в команду</button><button class="bigbtn" id="c-solo">🧑‍💻<br>Играть соло</button></div>
+      <p class="muted">Соло: личный набор из 20 задач дня, без выборов капитана.</p>${back('who')}</div>`,
     create: `<div class="card"><h2>Создать команду</h2>${roomInput}<label>Название команды*<input id="tname" maxlength="30" placeholder="Байтики"></label>
       ${back('choice')} <button id="go">Создать</button></div>`,
+    solo: `<div class="card"><h2>Играть соло</h2>${roomInput}${back('choice')} <button id="go">Начать</button></div>`,
     join: `<div class="card"><h2>Войти в команду</h2>${roomInput}${back('choice')} <button id="go">Показать команды →</button>
       <hr><p><b>или</b> введите код команды от товарищей (код комнаты тогда не нужен):</p>
       <input id="tcode" placeholder="ABC123-1" style="text-transform:uppercase;font-family:monospace;font-size:20px"> <button id="go2">Вступить</button></div>`
@@ -105,7 +107,11 @@ function wizard(step) {
     if (!fio || !group) return toast('Заполните ФИО и группу');
     store.set('pq_last', { fio, group }); wizard('choice');
   };
-  if (step === 'choice') { $('#c-create').onclick = () => wizard('create'); $('#c-join').onclick = () => wizard('join'); }
+  if (step === 'choice') { $('#c-create').onclick = () => wizard('create'); $('#c-join').onclick = () => wizard('join'); $('#c-solo').onclick = () => wizard('solo'); }
+  if (step === 'solo') $('#go').onclick = async e => {
+    const code = room(); if (!code) return;
+    try { const s = await joinRoom(code, e.target); await act({ a: 'createTeam', code, mid: s.mid, solo: true }, e.target); enter(s); } catch (x) {}
+  };
   if (step === 'create') $('#go').onclick = async e => {
     const code = room(), name = $('#tname').value.trim(); if (!code) return; if (!name) return toast('Введите название команды');
     try { const s = await joinRoom(code, e.target); await act({ a: 'createTeam', code, mid: s.mid, name }, e.target); enter(s); } catch (x) {}
@@ -139,10 +145,10 @@ function renderTeacher(T) {
   const s = S, set = st => e => act({ a: 'setStatus', code: T.code, key: T.key, status: st }, e.target);
   const teams = s.teams.map(t => {
     const cap = t.members.find(m => m.mid === t.captain);
-    return `<div class="team"><h3>${esc(t.name)} <span class="muted">${teamCode(s.code, t.tid)} · ${t.members.length} чел.</span></h3>
+    return `<div class="team ${t.solo ? 'solo' : ''}"><h3>${t.solo ? '<span class="pill solo">Соло</span> ' + esc(t.members[0].fio) : esc(t.name) + ` <span class="muted">${teamCode(s.code, t.tid)} · ${t.members.length} чел.</span>`}</h3>
       <div>Капитан: <b>${cap ? '★ ' + esc(cap.fio) : '—'}</b></div>
       <table>${t.members.map(m => `<tr><td>${m.mid === t.captain ? '★ ' : ''}${esc(m.fio)}<br><span class="muted">${esc(m.group)}</span></td><td>${s.status === 'election' ? (m.voted ? '🗳 голос' : '…') : ''}</td><td>${m.solved} ✔ / ${m.pts} б.</td></tr>`).join('')}</table>
-      <div class="muted">Назначено: ${t.score.assigned} · решено: ${t.score.solved} · провалено: ${t.score.failed} из ${s.poolSize}</div>
+      <div class="muted">Назначено: ${t.score.assigned} · решено: ${t.score.solved} · провалено: ${t.score.failed} из ${t.total || s.poolSize}</div>
       <div style="font-size:22px"><b>${t.score.pts}</b> баллов</div></div>`;
   }).join('');
   $('#app').innerHTML = `<div class="card"><div class="muted">Код комнаты — покажите студентам:</div><div class="big">${s.code}</div>
@@ -175,10 +181,11 @@ function renderStudent() {
     ${t ? ` · команда <b>${esc(t.name)}</b> · ${t.pts} б.` : ''} <button class="sec" id="logout" style="float:right">Выйти</button>`;
   $('#logout').onclick = () => { if (confirm('Выйти из комнаты на этом устройстве?')) { store.del('pq_student'); stopPoll(); wizard('choice'); } };
   renderSide(s);
-  if (t && t.captain) maybeReveal(s);
+  if (t && t.captain && !t.solo) maybeReveal(s);
   const main = $('#main');
   if (s.status === 'closed') { main.innerHTML = board(s); $('#tasks').innerHTML = ''; return; }
   if (!t) return renderTeams(main, s);
+  if (t.solo && s.status !== 'running') { main.innerHTML = `<div class="card"><h3>🧑‍💻 Соло-режим</h3>Ваш личный набор: 20 задач. Ждём, когда преподаватель запустит решение задач…</div>`; return; }
   if (s.status === 'lobby') { main.innerHTML = teamCard(s) + `<div class="card">Ждём, когда преподаватель откроет выборы капитана. <button class="sec" id="leave">Покинуть команду</button></div>`; $('#leave').onclick = e => act({ a: 'leaveTeam', code: ME.code, mid: ME.mid }, e.target); return; }
   if (s.status === 'election' && !t.captain) return renderVote(main, s);
   if (s.status === 'election') { main.innerHTML = teamCard(s) + `<div class="card">Капитан выбран! Ждём старта задач…</div>`; return; }
@@ -187,9 +194,9 @@ function renderStudent() {
 function renderSide(s) {
   const total = (s.pool && s.pool.length) || 50, mine = s.team && s.team.tid;
   const rows = s.teams.slice().sort((a, b) => (b.pts || 0) - (a.pts || 0)).map(t => {
-    const sv = t.solved || 0, pct = Math.round(100 * sv / total);
-    return `<div class="sd-team ${t.tid === mine ? 'mine' : ''}"><div class="sd-name">${t.tid === mine ? '⭐ ' : ''}${esc(t.name)} <span class="muted">${t.members.length}/${s.maxTeam}</span></div>
-      <div class="bar"><i style="width:${pct}%"></i></div><div class="muted">${sv}/${total} · <b>${t.pts || 0}</b> б.</div></div>`;
+    const tot = t.total || total, sv = t.solved || 0, pct = Math.round(100 * sv / tot);
+    return `<div class="sd-team ${t.tid === mine ? 'mine' : ''}"><div class="sd-name">${t.tid === mine ? '⭐ ' : ''}${t.solo ? '<span class="pill solo">Соло</span> ' + esc(t.members[0].fio) : esc(t.name) + ` <span class="muted">${t.members.length}/${s.maxTeam}</span>`}</div>
+      <div class="bar"><i style="width:${pct}%"></i></div><div class="muted">${sv}/${tot} · <b>${t.pts || 0}</b> б.</div></div>`;
   }).join('');
   if (window.sideOpen == null) window.sideOpen = innerWidth > 760;
   $('#side').innerHTML = `<details ${sideOpen ? 'open' : ''} id="sd"><summary>Команды (${s.teams.length})</summary>${rows || '<div class="muted">Пока нет команд</div>'}</details>`;
@@ -202,7 +209,7 @@ function teamCard(s) {
 function renderTeams(main, s) {
   main.innerHTML = `<div class="card"><h3>Выберите команду</h3><button class="sec" id="tback">← Назад</button> <span class="muted">Список обновляется автоматически</span></div>
     <div class="grid">${s.teams.map(t => `<div class="team"><h3>${esc(t.name)}</h3>${t.members.map(m => '<div>' + esc(m.fio) + '</div>').join('')}
-      <div class="muted">Участников: <b>${t.members.length}/${s.maxTeam}</b></div><button data-join="${t.tid}" ${t.members.length >= s.maxTeam ? 'disabled' : ''}>${t.members.length >= s.maxTeam ? 'Заполнена' : 'Вступить'}</button></div>`).join('') || '<div class="card">Команд пока нет. Вернитесь назад и создайте свою!</div>'}</div>`;
+      <div class="muted">Участников: <b>${t.members.length}/${s.maxTeam}</b></div>${t.solo ? '<span class="pill solo">Соло</span>' : `<button data-join="${t.tid}" ${t.members.length >= s.maxTeam ? 'disabled' : ''}>${t.members.length >= s.maxTeam ? 'Заполнена' : 'Вступить'}</button>`}</div>`).join('') || '<div class="card">Команд пока нет. Вернитесь назад и создайте свою!</div>'}</div>`;
   $('#tback').onclick = () => { stopPoll(); store.del('pq_student'); wizard('choice'); };
   main.querySelectorAll('[data-join]').forEach(b => b.onclick = e => act({ a: 'joinTeam', code: ME.code, mid: ME.mid, tid: b.dataset.join }, e.target));
 }
@@ -257,7 +264,8 @@ function renderRunning(main, s) {
       return `<tr><td><span class="pill ${tk.cat}">${CAT[tk.cat] || ''}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></td><td>${sel}</td><td class="st-${x.st || ''}">${x.to || x.st ? ST[x.st] || '' : ''}${x.att ? ' <span class="muted">(попыток: ' + x.att + ')</span>' : ''}</td></tr>`;
     }).join('');
     const done = Object.values(t.tasks).filter(x => x.st === 'solved').length;
-    main.innerHTML = teamCard(s) + `<div class="card"><h3>${isCap ? '★ Вы капитан: распределите задачи дня' : 'Задачи команды (распределяет капитан ★ ' + esc(name(t.captain)) + ')'}</h3>
+    if (t.solo) main.innerHTML = `<div class="card"><h3>🧑‍💻 Соло: решено ${done} из ${s.pool.length} · ${t.pts} баллов</h3></div><h2>Мои задачи</h2>`;
+    else main.innerHTML = teamCard(s) + `<div class="card"><h3>${isCap ? '★ Вы капитан: распределите задачи дня' : 'Задачи команды (распределяет капитан ★ ' + esc(name(t.captain)) + ')'}</h3>
       <div class="muted">Решено ${done} из ${s.pool.length} · ${t.pts} баллов</div>
       <details ${isCap ? 'open' : ''}><summary>Пул задач (${s.pool.length})</summary><table><tr><th>Задача</th><th>Исполнитель</th><th>Статус</th></tr>${rows}</table></details></div>
       <h2>Мои задачи</h2>`;
