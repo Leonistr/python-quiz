@@ -30,7 +30,7 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js?v=9'); wReady = false;
+  worker = new Worker('pyworker.js?v=10'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
 function runPy(code, tests) {
@@ -57,6 +57,7 @@ async function pollNow() {
     if (!r.same) { lastV = r.v; lastCv = r.cv || ''; clockOff = r.now - Date.now(); S = r; const ev = r.events || []; if (lastEv >= 0) onEvents(ev); if (ev.length) lastEv = Math.max(lastEv, ...ev.map(e => e.id)); else if (lastEv < 0) lastEv = 0; render(); }
   } catch (e) {
     $('#net').textContent = '🔴 нет связи';
+    if (/удалили/.test(e.message)) { kickedScreen(); $('#net').textContent = ''; return; }
     if (/не найден|доступа/.test(e.message)) { toast(e.message); store.del('pq_student'); store.del('pq_teacher'); stopPoll(); return home(); }
   }
   if (polling === fn) pollTimer = setTimeout(pollNow, document.hidden ? POLL_MS * 3 : POLL_MS);
@@ -64,6 +65,12 @@ async function pollNow() {
 let render = () => {};
 setInterval(() => { document.querySelectorAll('[data-deadline]').forEach(el => { const s = Math.max(0, Math.ceil((+el.dataset.deadline - Date.now() - clockOff) / 1000)); el.textContent = Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }); }, 500);
 
+function kickedScreen() {
+  const s = store.get('pq_student'); if (s) { const k = store.get('pq_kicked') || {}; k[s.code] = 1; store.set('pq_kicked', k); }
+  store.del('pq_student'); stopPoll(); render = () => {}; setTimeout(() => $('#net').textContent = '', 0); if (typeof closeExtras === 'function') closeExtras(); document.body.classList.remove('student');
+  $('#app').innerHTML = `<div class="card kicked"><div style="font-size:56px">🚪</div><h2>Вас удалили из комнаты</h2><p class="muted">Преподаватель исключил вас из этой игры. Вернуться в неё с этого устройства нельзя.</p><button class="sec wide" id="k-home">На главную</button></div>`;
+  $('#k-home').onclick = () => wizard('who');
+}
 // ---------- главная ----------
 function home() {
   stopPoll(); render = () => {};
@@ -77,6 +84,7 @@ function home() {
 const teamCode = (code, tid) => code + '-' + String(tid).replace(/^t/, '');
 function parseTeamCode(v) { const m = String(v).toUpperCase().replace(/\s/g, '').match(/^([A-Z2-9]{6})-?(\d+)$/); return m ? { code: m[1], tid: 't' + m[2] } : null; }
 async function joinRoom(code, btn) {
+  if ((store.get('pq_kicked') || {})[code]) { toast('⚠ Вас удалили из этой комнаты'); throw new Error('kicked'); }
   const L = store.get('pq_last'), mids = store.get('pq_mids') || {};
   const r = await act({ a: 'join', code, fio: L.fio, group: L.group, mid: mids[code] }, btn);
   mids[code] = r.mid; store.set('pq_mids', mids);
@@ -151,9 +159,9 @@ function renderTeacher(T) {
     const cap = t.members.find(m => m.mid === t.captain);
     return `<div class="team ${t.solo ? 'solo' : ''}"><h3>${t.finished ? '<span class="pill fin">🏁 ' + t.finished.place + ' место</span> ' : ''}${t.solo ? '<span class="pill solo">Соло</span> ' + esc(t.members[0].fio) : esc(t.name) + ` <span class="muted">${teamCode(s.code, t.tid)} · ${t.members.length} чел.</span>`}</h3>
       <div>Капитан: <b>${cap ? '★ ' + esc(cap.fio) : '—'}</b></div>
-      <table>${t.members.map(m => `<tr><td>${m.mid === t.captain ? '★ ' : ''}${esc(m.fio)}<br><span class="muted">${esc(m.group)}</span></td><td>${s.status === 'election' ? (m.voted ? '🗳 голос' : '…') : ''}</td><td>${m.solved} ✔ / ${m.pts} б.${m.rating != null ? ' · ' + m.rating + '%' : ''}</td></tr>`).join('')}</table>
+      <table>${t.members.map(m => `<tr><td>${m.mid === t.captain ? '★ ' : ''}${esc(m.fio)}<br><span class="muted">${esc(m.group)}</span></td><td>${s.status === 'election' ? (m.voted ? '🗳 голос' : '…') : ''}</td><td>${m.solved} ✔ / ${m.pts} б.${m.rating != null ? ' · ' + m.rating + '%' : ''}</td><td><button class="kick" data-kick="${m.mid}" data-fio="${esc(m.fio)}" title="Кикнуть из комнаты">✖</button></td></tr>`).join('')}</table>
       <div class="muted">Назначено: ${t.score.assigned} · решено: ${t.score.solved} · провалено: ${t.score.failed} из ${t.total || s.poolSize}</div>
-      <div style="font-size:22px">рейтинг <b>${t.rating}%</b> <span class="muted" style="font-size:14px">· ${t.score.total} б. из ${t.max} · пул ${t.total} · место ${t.rank}</span></div>${tFinish(t)}${tChat(t)}</div>`;
+      <div style="font-size:22px">рейтинг <b>${t.rating}%</b> <span class="muted" style="font-size:14px">· ${t.score.total} б. из ${t.max} · пул ${t.total} · место ${t.rank}</span></div>${tFinish(t)}${tChat(t)}${s.status !== 'closed' ? `<button class="sec red-o wide" data-disband="${t.tid}" data-name="${esc(t.solo ? t.members[0].fio : t.name)}">Расформировать команду</button>` : ''}</div>`;
   }).join('');
   $('#app').innerHTML = `<div class="card"><div class="muted">Код комнаты — покажите студентам:</div><div class="big">${s.code}</div>
     <div style="text-align:center">Статус: <b>${STATUS[s.status]}</b> ${s.status === 'election' ? '· осталось <span class="timer" data-deadline="' + s.deadline + '"></span>' : ''} · задачи дня: ${s.date}<br>
@@ -164,10 +172,16 @@ function renderTeacher(T) {
     ${s.status === 'running' ? '<button class="red" id="b-close">Завершить и записать результаты</button>' : ''}
     ${s.status !== 'lobby' ? '<button class="sec" id="b-exp">Записать результаты в таблицу</button>' : ''}
     <button class="sec" id="b-leave">Выйти из комнаты</button></div></div>
-    ${s.loose.length ? `<div class="card">Без команды: ${s.loose.map(m => esc(m.fio)).join(', ')}</div>` : ''}
+    ${s.loose.length ? `<div class="card"><b>Без команды (${s.loose.length}):</b>${s.loose.map(m => `<div class="loose">${esc(m.fio)} <span class="muted">${esc(m.group)}</span> <button class="kick" data-kick="${m.mid}" data-fio="${esc(m.fio)}">✖ Кикнуть</button></div>`).join('')}</div>` : ''}
+    ${(s.kicked || []).length ? `<div class="muted" style="margin:4px 0">Удалены из комнаты: ${s.kicked.map(esc).join(', ')}</div>` : ''}
     <div class="muted" style="margin:4px 0">${rHelp()}</div>${tBlitz(s)}${tFinished(s)}<div class="grid">${teams || '<div class="card">Команд пока нет</div>'}</div>`;
   $('#b-el') && ($('#b-el').onclick = set('election'));
-  $('#app').onclick = e => { const g = e.target.closest('[data-goto]'); if (g) { e.preventDefault(); openHelp(g.dataset.goto, g.dataset.tid); } };
+  $('#app').onclick = e => {
+    const kb = e.target.closest('[data-kick]');
+    if (kb) { if (confirm('Кикнуть «' + kb.dataset.fio + '» из комнаты?\nЕго открытые задачи вернутся капитану, войти снова с этого устройства он не сможет.')) act({ a: 'kick', code: T.code, key: T.key, mid: kb.dataset.kick }, kb).then(() => toast('Игрок удалён')).catch(() => {}); return; }
+    const db = e.target.closest('[data-disband]');
+    if (db) { if (confirm('Расформировать команду «' + db.dataset.name + '»?\nУчастники вернутся к выбору команды, их ответы останутся в таблице.')) act({ a: 'disband', code: T.code, key: T.key, tid: db.dataset.disband }, db).then(() => toast('Команда расформирована')).catch(() => {}); return; }
+    const g = e.target.closest('[data-goto]'); if (g) { e.preventDefault(); openHelp(g.dataset.goto, g.dataset.tid); } };
   $('#b-blitz') && ($('#b-blitz').onclick = e => act({ a: 'blitz', code: T.code, key: T.key }, e.target).then(r => toast('⚡ Блиц запущен: ' + ((TASK[r.task] || {}).title || r.task))).catch(() => {}));
   document.querySelectorAll('details[data-chat]').forEach(d => { d.open = !!openChats[d.dataset.chat]; d.ontoggle = () => openChats[d.dataset.chat] = d.open; });
   $('#b-run') && ($('#b-run').onclick = set('running'));
@@ -177,7 +191,7 @@ function renderTeacher(T) {
 }
 
 // ---------- студент ----------
-let ME = null, TAB = 'tasks';
+let ME = null, TAB = 'tasks', growSeen = {};
 function studentStart(s) {
   ME = s; render = renderStudent; taskCards = {}; prevMine = null; TAB = 'tasks';
   $('#app').innerHTML = `<div id="hdr" class="hdr"></div>
@@ -201,6 +215,11 @@ function setTab(k) {
 function tabBadge(k, n) { const b = $('#tb-' + k); if (!b) return; b.hidden = !n; b.textContent = n > 9 ? '9+' : n; }
 function renderStudent() {
   const s = S, t = s.team;
+  if (!t && s.me.wasIn && s.status !== 'closed') {
+    const ak = store.get('pq_disb') || {}, kk = s.code + s.me.wasIn;
+    if (!ak[kk]) { ak[kk] = 1; store.set('pq_disb', ak); stopPoll(); closeExtras(); store.del('pq_student'); toast('Преподаватель расформировал вашу команду. Выберите новую или играйте соло.', 6000); return wizard('choice'); }
+  }
+  if (t && s.pool) { const pk = s.code + t.tid; if (growSeen.k === pk && s.pool.length > growSeen.n) toast('📌 В команду добавлено задач: ' + (s.pool.length - growSeen.n) + (t.captain === ME.mid ? ' — распределите их!' : ''), 5000); growSeen = { k: pk, n: s.pool.length }; }
   $('#hdr').innerHTML = `<div class="h1"><b>${esc(s.me.fio)}</b> <span class="muted">${esc(s.me.group)} · ${s.code}</span></div>
     <div class="h2">${t ? `${t.solo ? '🧑‍💻 соло' : '👥 ' + esc(t.name)} · <b class="rt">${t.rating || 0}%</b> <span class="muted">${t.pts} б.</span>${t.finished ? ' · 🏁' + t.finished.place : ''}` : esc(STATUS[s.status])}</div>`;
   renderSide(s); renderMe(s);
@@ -499,6 +518,7 @@ function updNewCount() { const n = document.querySelectorAll('.task .newb').leng
 
 // ---------- чат команды ----------
 function chatMsgHtml(m, ro, meMid, tid) {
+  if (m.k === 'sys') return `<div class="msg k-sys"><span class="muted">${hhmm(m.at)}</span> ${esc(m.txt)}</div>`;
   const tidAttr = tid ? `data-tid="${tid}"` : '';
   const re = m.re || {};
   const rx = ro ? Object.keys(re).map(em => `<span class="rx on">${em} ${re[em].length}</span>`).join('')

@@ -148,3 +148,8 @@ table{display:block;overflow-x:auto}
   #tv-body{max-width:900px;margin:auto}
   #tab-chat #chatpanel{max-width:720px;margin:10px auto}
 }
+.msg.k-sys{background:#fef9c3;max-width:100%;font-size:14px;text-align:center;border-radius:8px}
+button.kick{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;padding:4px 10px;min-height:32px;font-size:14px;margin:0}
+button.red-o{color:#b91c1c;border-color:#fca5a5;margin-top:10px}
+.loose{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 0;border-bottom:1px solid #eee}.loose button{margin-left:auto}
+.kicked{text-align:center}
