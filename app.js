@@ -30,7 +30,7 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js?v=8'); wReady = false;
+  worker = new Worker('pyworker.js?v=9'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
 function runPy(code, tests) {
@@ -83,7 +83,7 @@ async function joinRoom(code, btn) {
   return { code, mid: r.mid, fio: L.fio, group: L.group };
 }
 function wizard(step) {
-  stopPoll(); render = () => {};
+  stopPoll(); render = () => {}; document.body.classList.remove('student', 'tv-open'); closeExtras();
   const L = store.get('pq_last') || {}, back = to => `<button class="sec" data-back="${to}">← Назад</button>`;
   const roomInput = `<label>Код комнаты* (скажет преподаватель)<input id="room" maxlength="6" placeholder="ABC123" style="text-transform:uppercase;font-family:monospace;font-size:22px"></label>`;
   const V = {
@@ -141,6 +141,7 @@ function teacherHome() {
   $('#create').onclick = async e => { const r = await act({ a: 'createRoom', pw: $('#pw').value }, e.target); const s = { code: r.code, key: r.key }; store.set('pq_teacher', s); teacherStart(s); };
 }
 function teacherStart(T) {
+  document.body.classList.remove('student');
   render = () => renderTeacher(T);
   startPoll(v => api({ a: 'tstate', code: T.code, key: T.key, v, cv: lastCv, ev: Math.max(lastEv, 0) }));
 }
@@ -166,6 +167,7 @@ function renderTeacher(T) {
     ${s.loose.length ? `<div class="card">Без команды: ${s.loose.map(m => esc(m.fio)).join(', ')}</div>` : ''}
     <div class="muted" style="margin:4px 0">${rHelp()}</div>${tBlitz(s)}${tFinished(s)}<div class="grid">${teams || '<div class="card">Команд пока нет</div>'}</div>`;
   $('#b-el') && ($('#b-el').onclick = set('election'));
+  $('#app').onclick = e => { const g = e.target.closest('[data-goto]'); if (g) { e.preventDefault(); openHelp(g.dataset.goto, g.dataset.tid); } };
   $('#b-blitz') && ($('#b-blitz').onclick = e => act({ a: 'blitz', code: T.code, key: T.key }, e.target).then(r => toast('⚡ Блиц запущен: ' + ((TASK[r.task] || {}).title || r.task))).catch(() => {}));
   document.querySelectorAll('details[data-chat]').forEach(d => { d.open = !!openChats[d.dataset.chat]; d.ontoggle = () => openChats[d.dataset.chat] = d.open; });
   $('#b-run') && ($('#b-run').onclick = set('running'));
@@ -175,29 +177,57 @@ function renderTeacher(T) {
 }
 
 // ---------- студент ----------
-let ME = null;
+let ME = null, TAB = 'tasks';
 function studentStart(s) {
-  ME = s; render = renderStudent; taskCards = {}; prevMine = null;
-  $('#app').innerHTML = `<div class="layout"><aside id="side"></aside><div class="content"><div class="card" id="hdr"></div><div id="main"></div><div id="tasks"></div></div></div>`;
+  ME = s; render = renderStudent; taskCards = {}; prevMine = null; TAB = 'tasks';
+  $('#app').innerHTML = `<div id="hdr" class="hdr"></div>
+    <section class="tab" id="tab-tasks"><div id="main"></div><div id="mylist"></div></section>
+    <section class="tab" id="tab-chat" hidden></section>
+    <section class="tab" id="tab-teams" hidden><aside id="side"></aside></section>
+    <section class="tab" id="tab-me" hidden></section>
+    <div id="cardstore" hidden></div>
+    <nav id="tabs">${[['tasks', '📋', 'Задачи'], ['chat', '💬', 'Чат'], ['teams', '🏆', 'Команды'], ['me', '👤', 'Моё']].map(([k, i, n]) => `<button data-tab="${k}" class="${k === TAB ? 'on' : ''}"><span class="ti">${i}</span><span>${n}</span><b class="tb" id="tb-${k}" hidden></b></button>`).join('')}</nav>`;
+  document.body.classList.add('student');
+  $('#tabs').querySelectorAll('[data-tab]').forEach(b => b.onclick = () => setTab(b.dataset.tab));
   startPoll(v => api({ a: 'state', code: s.code, mid: s.mid, v, cv: lastCv, ev: Math.max(lastEv, 0) }));
 }
+function setTab(k) {
+  TAB = k; closeTask();
+  document.querySelectorAll('#tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === k));
+  ['tasks', 'chat', 'teams', 'me'].forEach(x => { const el = $('#tab-' + x); if (el) el.hidden = x !== k; });
+  if (k === 'chat') { markRead(); const l = $('#ch-list'); if (l) l.scrollTop = l.scrollHeight; }
+  scrollTo(0, 0);
+}
+function tabBadge(k, n) { const b = $('#tb-' + k); if (!b) return; b.hidden = !n; b.textContent = n > 9 ? '9+' : n; }
 function renderStudent() {
   const s = S, t = s.team;
-  $('#hdr').innerHTML = `<b>${esc(s.me.fio)}</b> (${esc(s.me.group)}) · комната <b>${s.code}</b> · ${STATUS[s.status]}
-    ${t ? ` · ${t.solo ? 'соло' : 'команда <b>' + esc(t.name) + '</b>'} · рейтинг <b>${t.rating || 0}%</b> <span class="muted">(${t.pts} б.)</span>` : ''}${t && t.finished ? ` · 🏁 место ${t.finished.place} <button class="sec" id="b-fin">🏆 Финал</button>` : ''} <button class="sec" id="logout" style="float:right">Выйти</button>`;
-  $('#b-fin') && ($('#b-fin').onclick = () => showFinale(S));
-  $('#logout').onclick = () => { if (confirm('Выйти из комнаты на этом устройстве?')) { store.del('pq_student'); stopPoll(); closeExtras(); wizard('choice'); } };
-  renderSide(s);
+  $('#hdr').innerHTML = `<div class="h1"><b>${esc(s.me.fio)}</b> <span class="muted">${esc(s.me.group)} · ${s.code}</span></div>
+    <div class="h2">${t ? `${t.solo ? '🧑‍💻 соло' : '👥 ' + esc(t.name)} · <b class="rt">${t.rating || 0}%</b> <span class="muted">${t.pts} б.</span>${t.finished ? ' · 🏁' + t.finished.place : ''}` : esc(STATUS[s.status])}</div>`;
+  renderSide(s); renderMe(s);
   if (t && t.captain && !t.solo) maybeReveal(s);
   renderChat(s); renderBlitz(s); maybeFinale(s);
   const main = $('#main');
-  if (s.status === 'closed') { main.innerHTML = board(s); $('#tasks').innerHTML = ''; return; }
+  if (s.status !== 'running') { $('#mylist').innerHTML = ''; main._html = null; }
+  if (s.status === 'closed') { main.innerHTML = board(s); return; }
   if (!t) return renderTeams(main, s);
   if (t.solo && s.status !== 'running') { main.innerHTML = `<div class="card"><h3>🧑‍💻 Соло-режим</h3>Ваш личный набор: 15 задач. Ждём, когда преподаватель запустит решение задач…</div>`; return; }
   if (s.status === 'lobby') { main.innerHTML = teamCard(s) + `<div class="card">Ждём, когда преподаватель откроет выборы капитана. <button class="sec" id="leave">Покинуть команду</button></div>`; $('#leave').onclick = e => act({ a: 'leaveTeam', code: ME.code, mid: ME.mid }, e.target); return; }
   if (s.status === 'election' && !t.captain) return renderVote(main, s);
   if (s.status === 'election') { main.innerHTML = teamCard(s) + `<div class="card">Капитан выбран! Ждём старта задач…</div>`; return; }
   if (s.status === 'running') renderRunning(main, s);
+}
+function renderMe(s) {
+  const t = s.team, el = $('#tab-me'); if (!el) return;
+  const me = t && t.members.find(m => m.mid === ME.mid), A = t && t.achievements && t.achievements[ME.mid];
+  const h = `<div class="card"><h3>👤 ${esc(s.me.fio)}</h3><div class="muted">Группа ${esc(s.me.group)} · комната <b>${s.code}</b></div>
+    <p>Мои баллы: <b>${s.me.pts}</b>${me && me.bonus ? ` <span class="muted">(в т.ч. бонус ${me.bonus})</span>` : ''}</p>
+    ${t ? `<p>${t.solo ? 'Соло' : 'Команда «' + esc(t.name) + '»'}: рейтинг <b>${t.rating || 0}%</b> · ${t.pts} б.${t.rank ? ' · место ' + t.rank : ''}</p>${rHelp()}` : ''}
+    ${A ? `<h4>Мои достижения</h4>${A.map(a => `<div class="ach"><b>🏅 ${esc(a.t)}</b><span>${esc(a.d)}</span></div>`).join('')}` : ''}
+    ${t && t.finished ? '<button id="b-fin" class="wide">🏆 Финальный экран</button>' : ''}
+    <button class="sec wide" id="logout">Выйти из комнаты</button></div>${t && !t.solo ? teamCard(s) : ''}`;
+  if (el._h === h) return; el._h = h; el.innerHTML = h;
+  $('#b-fin') && ($('#b-fin').onclick = () => showFinale(S));
+  $('#logout').onclick = () => { if (confirm('Выйти из комнаты на этом устройстве?')) { store.del('pq_student'); stopPoll(); closeExtras(); document.body.classList.remove('student'); wizard('choice'); } };
 }
 function renderSide(s) {
   const total = (s.pool && s.pool.length) || 50, mine = s.team && s.team.tid;
@@ -206,9 +236,8 @@ function renderSide(s) {
     return `<div class="sd-team ${t.tid === mine ? 'mine' : ''}"><div class="sd-name">${t.tid === mine ? '⭐ ' : ''}${t.solo ? '<span class="pill solo">Соло</span> ' + esc(t.members[0].fio) : esc(t.name) + ` <span class="muted">${t.members.length}/${s.maxTeam}</span>`}</div>
       <div class="bar"><i style="width:${pct}%"></i></div><div class="sd-r"><b>${t.rating || 0}%</b> <span class="muted">· ${sv}/${tot} задач · ${t.pts || 0} б.${t.place ? ' · 🏁' + t.place : ''}</span></div></div>`;
   }).join('');
-  if (window.sideOpen == null) window.sideOpen = innerWidth > 760;
-  $('#side').innerHTML = `<details ${sideOpen ? 'open' : ''} id="sd"><summary>Рейтинг команд (${s.teams.filter(t => t.members.length).length})</summary>${rHelp()}${rows || '<div class="muted">Пока нет команд</div>'}</details>`;
-  $('#sd').ontoggle = e => window.sideOpen = e.target.open;
+  const h = `<div class="card"><h3>🏆 Рейтинг команд (${s.teams.filter(t => t.members.length).length})</h3>${rHelp()}${rows || '<div class="muted">Пока нет команд</div>'}</div>`;
+  if ($('#side')._h !== h) { $('#side').innerHTML = h; $('#side')._h = h; }
 }
 function teamCard(s) {
   const t = s.team;
@@ -292,55 +321,87 @@ const withPasteNote = (src, tid) => { const v = pc(tid).v; return v.p || v.b ? s
 // ---------- задачи ----------
 let taskCards = {};
 const ST = { assigned: 'в работе', solved: 'решена ✔', failed: 'не решена ✘', review: 'на проверке 📝' };
+const CLOSED = x => x && ['solved', 'failed', 'review'].includes(x.st);
 function renderRunning(main, s) {
-  const t = s.team, isCap = t.captain === ME.mid, name = mid => (t.members.find(m => m.mid === mid) || {}).fio || '—';
+  const t = s.team, isCap = t.captain === ME.mid && !t.solo, name = mid => (t.members.find(m => m.mid === mid) || {}).fio || '—';
   const keep = main.contains(document.activeElement) && document.activeElement.tagName === 'SELECT';
   if (!keep) {
-    const rows = s.pool.map(id => {
-      const x = t.tasks[id] || {}, tk = TASK[id] || { title: id, cat: '' };
-      const sel = isCap && x.st !== 'solved' && x.st !== 'failed'
-        ? `<select data-assign="${id}"><option value="">— не назначена —</option>${t.members.map(m => `<option value="${m.mid}" ${x.to === m.mid ? 'selected' : ''}>${esc(m.fio)}</option>`).join('')}</select>`
-        : esc(x.to ? name(x.to) : '—');
-      return `<tr><td><span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></td><td>${sel}</td><td class="st-${x.st || ''}">${x.to || x.st ? ST[x.st] || '' : ''}${x.att ? ' <span class="muted">(попыток: ' + x.att + ')</span>' : ''}</td></tr>`;
-    }).join('');
-    const done = Object.values(t.tasks).filter(x => x.st === 'solved').length;
-    let html;
-    if (t.solo) html = `<div class="card"><h3>🧑‍💻 Соло: решено ${done} из ${s.pool.length} · ${t.pts} баллов</h3></div><h2>Мои задачи</h2>`;
-    else html = teamCard(s) + `<div class="card"><h3>${isCap ? '★ Вы капитан: распределите задачи дня' : 'Задачи команды (распределяет капитан ★ ' + esc(name(t.captain)) + ')'}</h3>
-      <div class="muted">Решено ${done} из ${s.pool.length} · ${t.pts} баллов</div>
-      <details ${isCap ? 'open' : ''}><summary>Пул задач (${s.pool.length})</summary><table><tr><th>Задача</th><th>Исполнитель</th><th>Статус</th></tr>${rows}</table></details></div>
-      <h2>Мои задачи</h2>`;
-    if (main._html !== html) { main.innerHTML = html; main._html = html; }
+    let html = '';
+    if (isCap) {
+      const rows = s.pool.map(id => {
+        const x = t.tasks[id] || {}, tk = TASK[id] || { title: id, cat: '' };
+        const sel = !CLOSED(x) ? `<select data-assign="${id}"><option value="">— не назначена —</option>${t.members.map(m => `<option value="${m.mid}" ${x.to === m.mid ? 'selected' : ''}>${esc(m.fio)}</option>`).join('')}</select>` : `<span class="muted">${esc(name(x.to))}</span>`;
+        return `<div class="pcard"><div><span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></div><div class="prow">${sel}<span class="st-${x.st || ''}">${x.to || x.st ? ST[x.st] || '' : ''}</span></div></div>`;
+      }).join('');
+      const na = s.pool.filter(id => !(t.tasks[id] || {}).to).length;
+      html = `<details class="card" id="pooldet" ${main._open ? 'open' : ''}><summary><b>★ Распределение задач</b> <span class="muted">пул ${s.pool.length} · не назначено ${na}</span></summary>${rows}</details>`;
+    } else if (!t.solo) html = `<div class="muted cap">Задачи распределяет капитан ★ ${esc(name(t.captain))}</div>`;
+    if (main._html !== html) { main.innerHTML = html; main._html = html; const d = $('#pooldet'); if (d) d.ontoggle = () => main._open = d.open; }
     main.querySelectorAll('[data-assign]').forEach(sel => sel.onchange = () => act({ a: 'assign', code: ME.code, mid: ME.mid, task: sel.dataset.assign, to: sel.value }).catch(() => {}));
   }
-  // карточки моих задач — создаются один раз, чтобы не терять код в редакторе
-  const box = $('#tasks'), mine = s.pool.filter(id => (t.tasks[id] || {}).to === ME.mid);
-  Object.keys(taskCards).forEach(id => { if (!mine.includes(id)) { taskCards[id].el.remove(); delete taskCards[id]; } });
-  if (!mine.length) box.innerHTML = box.innerHTML && Object.keys(taskCards).length ? box.innerHTML : '<div class="card muted" id="notasks">Капитан ещё не назначил вам задачи.</div>';
-  else { const n = $('#notasks'); if (n) n.remove(); }
-  mine.forEach(id => { if (!taskCards[id]) taskCards[id] = makeCard(TASK[id], box); updateCard(taskCards[id], t.tasks[id]); });
+  const store_ = $('#cardstore'), mine = s.pool.filter(id => (t.tasks[id] || {}).to === ME.mid);
+  Object.keys(taskCards).forEach(id => { if (!mine.includes(id)) { if (openTid === id) closeTask(); taskCards[id].el.remove(); delete taskCards[id]; } });
+  mine.forEach(id => { if (!taskCards[id]) taskCards[id] = makeCard(TASK[id], store_); updateCard(taskCards[id], t.tasks[id]); });
   notifyAssign(s, mine);
+  // список своих задач: открытые сверху, закрытые ниже
+  const open = mine.filter(id => !CLOSED(t.tasks[id])), closed = mine.filter(id => CLOSED(t.tasks[id]));
+  const cnt = { solved: 0, failed: 0, review: 0 }; closed.forEach(id => cnt[t.tasks[id].st]++);
+  const li = id => { const x = t.tasks[id], tk = TASK[id]; return `<button class="tcard st-b-${x.st}" data-open="${id}"><span class="tc-top"><span class="pill ${tk.cat}">${catLabel(tk)}</span><span class="tc-st st-${x.st}">${taskCards[id].el.querySelector('.newb') ? '<span class="newb">НОВАЯ</span>' : ''}${ST[x.st] || ''}</span></span><span class="tc-t">${esc(tk.title)}</span><span class="muted">${tk.pts} б.${x.att ? ' · попыток: ' + x.att : ''}</span></button>`; };
+  const lh = `<h2 class="lh">Мои задачи <span class="muted">${open.length} открыто · ✅ ${cnt.solved} · ❌ ${cnt.failed}${cnt.review ? ' · 📝 ' + cnt.review : ''}</span></h2>
+    ${open.map(li).join('') || (closed.length ? '<div class="card muted">Все ваши задачи закрыты 🎉</div>' : `<div class="card muted" id="notasks">${t.solo ? '' : 'Капитан ещё не назначил вам задачи.'}</div>`)}
+    ${closed.length ? `<h3 class="lh2">Закрытые</h3>${closed.map(li).join('')}` : ''}`;
+  const ml = $('#mylist'); if (ml._h !== lh) { ml.innerHTML = lh; ml._h = lh; ml.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openTask(b.dataset.open)); }
+  tabBadge('tasks', document.querySelectorAll('#cardstore .newb, #taskview .newb').length);
+  if (openTid && taskCards[openTid]) { const x = t.tasks[openTid]; $('#tv-st').textContent = ST[x.st] || ''; }
 }
+let openTid = null;
+function openTask(id) {
+  const c = taskCards[id]; if (!c) return;
+  closeTask(true);
+  let tv = $('#taskview'); if (!tv) { tv = document.createElement('div'); tv.id = 'taskview'; document.body.appendChild(tv); }
+  tv.innerHTML = `<div class="tv-h"><button class="sec" id="tv-back">← Назад</button><b class="tv-t">${esc(c.tk.title)}</b><span id="tv-st" class="muted"></span></div><div id="tv-body"></div>`;
+  $('#tv-body').appendChild(c.el); tv.hidden = false; openTid = id; document.body.classList.add('tv-open');
+  if (c.open) c.open(); const nb = document.querySelector(`[data-open="${id}"] .newb`); if (nb) nb.remove();
+  $('#tv-back').onclick = () => closeTask();
+  if (c.ed) setTimeout(() => c.ed.refresh(), 30);
+  tv.scrollTop = 0; history.pushState({ tv: 1 }, '');
+}
+function closeTask(silent) {
+  const tv = $('#taskview'); if (!tv || tv.hidden) return;
+  const c = openTid && taskCards[openTid]; if (c) $('#cardstore').appendChild(c.el);
+  tv.hidden = true; openTid = null; document.body.classList.remove('tv-open');
+}
+window.addEventListener('popstate', () => { closeTask(); const h = $('#helpmodal'); if (h) h.remove(); });
+const KEYROW = [['Tab', '    '], [':', ':'], ['( )', '()', 1], ['[ ]', '[]', 1], ['"', '""', 1], ['=', ' = '], ['#', '# '], ['⏎', '\n']];
 function makeCard(tk, box) {
   const el = document.createElement('div'); el.className = 'card task'; el.dataset.tid = tk.id;
   const left = { mc: 1, num: 2, text: 2, order: 2 }[tk.kind];
-  el.innerHTML = `<h3><span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></h3><p>${tk.desc}</p>
-    ${tk.kind === 'code' ? `<textarea></textarea><button class="run">▶ Запустить</button><button class="send">✔ Проверить и сдать</button><pre class="out"></pre>`
-      : tk.kind === 'order' ? `<ol class="order">${tk.options.map((o, i) => `<li data-i="${i}"><button class="sec up">↑</button><button class="sec dn">↓</button><code>${esc(o).replace(/ /g, '&nbsp;')}</code></li>`).join('')}</ol><button class="send">Проверить порядок</button> <span class="muted">Попыток: ${left}</span>`
-      : tk.kind === 'free' ? `<textarea class="freeans" rows="6" placeholder="Ваш ответ (минимум пару предложений)"></textarea><br><button class="send">Отправить на проверку</button> <span class="muted">Проверит преподаватель, бонус до 3 баллов</span>`
-      : tk.kind === 'mc' ? `<div class="mc">${tk.options.map((o, i) => `<label><input type="radio" name="o_${tk.id}" value="${i}"> ${esc(o)}</label>`).join('')}</div><button class="send">Ответить</button> <span class="muted">Попыток: ${left}</span>`
-      : `<input class="ans" placeholder="Ваш ответ"> <button class="send">Ответить</button> <span class="muted">Попыток: ${left}</span>`}
-    <div class="res"></div>`;
+  el.innerHTML = `<h3><span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></h3><div class="desc">${tk.desc}</div>
+    ${tk.kind === 'code' ? `<textarea></textarea><div class="keyrow">${KEYROW.map((k, i) => `<button class="sec" data-k="${i}" tabindex="-1">${k[0]}</button>`).join('')}</div><div class="btnrow"><button class="sec run">▶ Запустить</button><button class="send">✔ Проверить и сдать</button></div><pre class="out"></pre>`
+      : tk.kind === 'order' ? `<ol class="order">${tk.options.map((o, i) => `<li data-i="${i}"><button class="sec up">↑</button><button class="sec dn">↓</button><code>${esc(o).replace(/ /g, '&nbsp;')}</code></li>`).join('')}</ol><button class="send wide">Проверить порядок</button> <span class="muted">Попыток: ${left}</span>`
+      : tk.kind === 'free' ? `<textarea class="freeans" rows="6" placeholder="Ваш ответ (минимум пару предложений)"></textarea><button class="send wide">Отправить на проверку</button> <span class="muted">Проверит преподаватель, бонус до 3 баллов</span>`
+      : tk.kind === 'mc' ? `<div class="mc">${tk.options.map((o, i) => `<label><input type="radio" name="o_${tk.id}" value="${i}"> ${esc(o)}</label>`).join('')}</div><button class="send wide">Ответить</button> <span class="muted">Попыток: ${left}</span>`
+      : `<input class="ans" placeholder="Ваш ответ" autocomplete="off" autocapitalize="off"> <button class="send wide">Ответить</button> <span class="muted">Попыток: ${left}</span>`}
+    <div class="sub"></div><div class="res"></div>`;
   box.appendChild(el);
-  const c = { el, tk };
+  const c = { el, tk }, ak = 'pq_ans_' + ME.code + '_' + tk.id, saveAns = v => store.set(ak, v);
+  c.ans = () => store.get(ak);
   if (tk.kind === 'code') {
-    c.ed = CodeMirror.fromTextArea(el.querySelector('textarea'), { mode: 'python', lineNumbers: true, indentUnit: 4, extraKeys: { Tab: cm => cm.replaceSelection('    '), 'Shift-Tab': 'indentLess' } });
+    c.ed = CodeMirror.fromTextArea(el.querySelector('textarea'), { mode: 'python', lineNumbers: true, indentUnit: 4, lineWrapping: true, inputStyle: 'contenteditable', extraKeys: { Tab: cm => cm.replaceSelection('    '), 'Shift-Tab': 'indentLess' } });
     const draft = store.get('pq_code_' + ME.code + '_' + tk.id); c.ed.setValue(draft || tk.starter); guardCM(c.ed, tk.id);
-    c.ed.on('change', () => store.set('pq_code_' + ME.code + '_' + tk.id, c.ed.getValue()));
+    let dt = null, lastSent = null;
+    const sync = () => { const v = c.ed.getValue(); if (v === lastSent) return; lastSent = v; api({ a: 'draft', code: ME.code, mid: ME.mid, task: tk.id, src: v }, true).catch(() => {}); };
+    c.ed.on('change', () => { store.set('pq_code_' + ME.code + '_' + tk.id, c.ed.getValue()); clearTimeout(dt); dt = setTimeout(sync, 4000); });
+    c.sync = sync;
+    el.querySelectorAll('.keyrow [data-k]').forEach(b => {
+      b.addEventListener('mousedown', e => e.preventDefault()); b.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+      const ins = () => { const k = KEYROW[+b.dataset.k], cm = c.ed; if (cm.getOption('readOnly')) return; cm.focus(); cm.replaceSelection(k[1], 'end', '+key'); if (k[2]) { const p = cm.getCursor(); cm.setCursor({ line: p.line, ch: p.ch - 1 }); } };
+      b.addEventListener('touchend', e => { e.preventDefault(); ins(); }); b.addEventListener('click', ins);
+    });
     const out = el.querySelector('.out');
-    el.querySelector('.run').onclick = async e => { c.runs = (c.runs || 0) + 1; e.target.disabled = true; out.textContent = worker && wReady ? '…' : 'Загрузка Python (первый раз ~10 с)…'; const r = await runPy(c.ed.getValue()); out.textContent = r.out + (r.msg ? '\n' + r.msg : ''); e.target.disabled = false; };
+    el.querySelector('.run').onclick = async e => { c.runs = (c.runs || 0) + 1; e.target.disabled = true; out.textContent = worker && wReady ? '…' : 'Загрузка Python (первый раз ~10 с)…'; sync(); const r = await runPy(c.ed.getValue()); out.textContent = r.out + (r.msg ? '\n' + r.msg : ''); e.target.disabled = false; };
     el.querySelector('.send').onclick = async e => {
-      c.runs = (c.runs || 0) + 1; e.target.disabled = true; out.textContent = 'Проверка…';
+      c.runs = (c.runs || 0) + 1; e.target.disabled = true; out.textContent = 'Проверка…'; sync();
       const r = await runPy(c.ed.getValue(), tk.tests); out.textContent = r.out + (r.msg ? '\n' + r.msg : '') + (r.ok ? '\n✔ Все тесты пройдены' : '');
       if (!r.ok) { e.target.disabled = false; return; }
       try { await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, passed: true, src: withPasteNote(c.ed.getValue(), tk.id), paste: pasteInfo(tk.id), runs: c.runs }); } catch (x) { e.target.disabled = false; }
@@ -352,29 +413,33 @@ function makeCard(tk, box) {
     });
     el.querySelectorAll('.ans, .freeans').forEach(x => guardInput(x, tk.id));
     if (tk.kind === 'free') { const ta = el.querySelector('.freeans'), k = 'pq_free_' + ME.code + '_' + tk.id; ta.value = store.get(k) || ''; ta.oninput = () => store.set(k, ta.value); }
+    const fb = r => toast(r.correct ? '✔ Верно!' : r.left ? '✘ Неверно, осталось попыток: ' + r.left : '✘ Неверно, попытки закончились');
     el.querySelector('.send').onclick = async e => {
       if (tk.kind === 'free') {
         const txt = el.querySelector('.freeans').value.trim(); if (txt.length < 10) return toast('Напишите развёрнутый ответ');
         if (!confirm('Отправить ответ преподавателю? Изменить будет нельзя.')) return;
-        try { await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, answer: txt, paste: pasteInfo(tk.id) }, e.target); toast('📝 Отправлено на проверку'); } catch (x) {} return;
+        try { await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, answer: txt, paste: pasteInfo(tk.id) }, e.target); saveAns(txt); toast('📝 Отправлено на проверку'); } catch (x) {} return;
       }
-      if (tk.kind === 'order') {
-        const ans = [...el.querySelectorAll('.order li')].map(li => li.dataset.i).join(',');
-        try { const r = await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, answer: ans, paste: pasteInfo(tk.id) }, e.target); toast(r.correct ? '✔ Верно!' : r.left ? '✘ Неверно, осталось попыток: ' + r.left : '✘ Неверно, попытки закончились'); } catch (x) {} return;
-      }
-      const ans = tk.kind === 'mc' ? (el.querySelector('input[type=radio]:checked') || {}).value : el.querySelector('.ans').value.trim();
+      let ans, shown;
+      if (tk.kind === 'order') { const L = [...el.querySelectorAll('.order li')]; ans = L.map(li => li.dataset.i).join(','); shown = L.map(li => tk.options[+li.dataset.i]).join(' → '); }
+      else if (tk.kind === 'mc') { ans = (el.querySelector('input[type=radio]:checked') || {}).value; shown = ans != null ? tk.options[+ans] : ''; }
+      else { ans = el.querySelector('.ans').value.trim(); shown = ans; }
       if (ans == null || ans === '') return toast('Выберите или введите ответ');
       if (tk.kind === 'mc' && !confirm('Попытка одна. Отправить ответ?')) return;
-      try { const r = await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, answer: ans, paste: pasteInfo(tk.id) }, e.target); toast(r.correct ? '✔ Верно!' : r.left ? '✘ Неверно, осталось попыток: ' + r.left : '✘ Неверно, попытки закончились'); } catch (x) {}
+      try { const r = await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, answer: ans, paste: pasteInfo(tk.id) }, e.target); const L = c.ans() || []; L.push((r.correct ? '✔ ' : '✘ ') + shown); saveAns(L); fb(r); } catch (x) {}
     };
   }
   return c;
 }
 function updateCard(c, x) {
-  const done = x.st === 'solved' || x.st === 'failed' || x.st === 'review';
+  const done = CLOSED(x);
   c.el.querySelector('.res').innerHTML = done ? `<p class="st-${x.st}">${x.st === 'solved' ? '✔ Задача решена! +' + c.tk.pts + ' б.' : x.st === 'review' ? '📝 На проверке у преподавателя' : '✘ Попытки закончились'}</p>` : (x.att ? `<p class="muted">Попыток использовано: ${x.att}</p>` : '');
-  c.el.querySelectorAll('button.send, input, .run, textarea, .order button').forEach(b => b.disabled = done);
-  if (c.ed) c.ed.setOption('readOnly', done);
+  const a = c.ans(), sub = c.el.querySelector('.sub');
+  const sh = done && a && c.tk.kind !== 'code' ? `<div class="myans"><b>Ваш ответ:</b> ${Array.isArray(a) ? a.map(esc).join('<br>') : esc(a)}</div>` : !done && Array.isArray(a) && a.length ? `<div class="myans muted">Было: ${a.map(esc).join('; ')}</div>` : '';
+  if (sub._h !== sh) { sub.innerHTML = sh; sub._h = sh; }
+  c.el.classList.toggle('closed', done);
+  c.el.querySelectorAll('button.send, input, .run, textarea, .order button, .keyrow button').forEach(b => b.disabled = done);
+  if (c.ed) c.ed.setOption('readOnly', done ? 'nocursor' : false);
 }
 function board(s) {
   const b = (s.board || []).slice().sort((a, b) => b.rating - a.rating || a.rank - b.rank);
@@ -400,7 +465,7 @@ function onEvent(e) {
   else if (e.type === 'finish') { if (!(S.team && S.team.tid === e.tid)) ntoast(`🏁 ${/^Соло: /.test(e.team) ? e.team : 'Команда ' + e.team} закончила все задания! (место ${e.place})`, 7000, 'fin'); }
   else if (e.type === 'blitz' && !S.me) ntoast(`⚡ Блиц-раунд #${e.n} запущен`, 4000);
 }
-function closeExtras() { ['#chatfab', '#chatpanel', '#blitz', '#finale', '#blbadge'].forEach(q => { const x = $(q); if (x) x.remove(); }); }
+function closeExtras() { ['#blitz', '#finale', '#blbadge', '#taskview', '#helpmodal'].forEach(q => { const x = $(q); if (x) x.remove(); }); }
 const hhmm = at => new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 const REACT = ['👍', '😂', '🔥', '❓', '✅'];
 
@@ -433,54 +498,82 @@ function notifyAssign(s, mine) {
 function updNewCount() { const n = document.querySelectorAll('.task .newb').length; let b = $('#newcnt'); const h = $('#hdr'); if (!h) return; if (!b) { b = document.createElement('span'); b.id = 'newcnt'; b.onclick = () => { const f = document.querySelector('.task .newb'); if (f) gotoTask(f.closest('.task').dataset.tid); }; h.appendChild(b); } b.hidden = !n; b.textContent = '📌 новых задач: ' + n; }
 
 // ---------- чат команды ----------
-function chatMsgHtml(m, ro, meMid) {
+function chatMsgHtml(m, ro, meMid, tid) {
+  const tidAttr = tid ? `data-tid="${tid}"` : '';
   const re = m.re || {};
   const rx = ro ? Object.keys(re).map(em => `<span class="rx on">${em} ${re[em].length}</span>`).join('')
     : REACT.map(em => `<button class="rx ${(re[em] || []).includes(meMid) ? 'on' : ''} ${re[em] ? 'has' : ''}" data-rx="${em}" data-msg="${m.id}">${em}${re[em] ? ' ' + re[em].length : ''}</button>`).join('');
-  const link = m.task ? ` <a href="#" class="tlink" data-goto="${m.task}">→ ${esc(tTitle(m.task))}</a>` : '';
+  const link = m.task ? ` <a href="#" class="tlink" data-goto="${m.task}" ${tidAttr}>→ ${esc(tTitle(m.task))}</a>` : '';
   return `<div class="msg ${m.mid === meMid ? 'me' : ''} k-${m.k}"><div class="mh"><b>${esc(m.fio)}</b> <span class="muted">${hhmm(m.at)}</span></div><div class="mt">${esc(m.txt)}${link}</div><div class="rxs">${rx}</div></div>`;
 }
 function renderChat(s) {
-  const t = s.team;
-  if (!t || t.solo || s.status === 'lobby') { ['#chatfab', '#chatpanel'].forEach(q => { const x = $(q); if (x) x.remove(); }); return; }
-  let fab = $('#chatfab'), pan = $('#chatpanel');
-  if (!fab) {
-    fab = document.createElement('button'); fab.id = 'chatfab'; fab.innerHTML = '💬<span id="chatbadge" hidden></span>'; document.body.appendChild(fab);
-    pan = document.createElement('div'); pan.id = 'chatpanel'; pan.hidden = true;
-    pan.innerHTML = `<div class="ch-h"><b>💬 Чат команды</b><button class="sec" id="ch-x">✕</button></div><div id="ch-list"></div>
+  const t = s.team, tab = $('#tab-chat'); if (!tab) return;
+  if (!t || t.solo || s.status === 'lobby') { if (tab._mode !== 'off') { tab._mode = 'off'; tab.innerHTML = `<div class="card muted">${t && t.solo ? 'В соло-режиме чата нет.' : 'Чат команды откроется, когда начнётся игра.'}</div>`; } tabBadge('chat', 0); return; }
+  if (tab._mode !== 'on') {
+    tab._mode = 'on';
+    tab.innerHTML = `<div id="chatpanel"><div id="ch-list"></div>
       <div class="ch-q"><select id="ch-task"></select><button class="sec" id="ch-help">🆘 Помогите с задачей</button><button class="sec" data-q="done">✅ Готово</button><button class="sec" data-q="look">👀 Сейчас посмотрю</button></div>
-      <div class="ch-in"><input id="ch-txt" maxlength="200" placeholder="Сообщение (до 200 символов)"><button id="ch-send">➤</button></div>`;
-    document.body.appendChild(pan);
-    const toggle = open => { pan.hidden = !open; if (open) { markRead(); const l = $('#ch-list'); l.scrollTop = l.scrollHeight; $('#ch-txt').focus(); } };
-    fab.onclick = () => toggle(pan.hidden); $('#ch-x').onclick = () => toggle(false);
+      <div class="ch-in"><input id="ch-txt" maxlength="200" placeholder="Сообщение (до 200 символов)" autocomplete="off"><button id="ch-send">➤</button></div></div>`;
     guardInput($('#ch-txt'), 'chat');
-    const send = async (k, txt, task, btn) => { try { await act({ a: 'chat', code: ME.code, mid: ME.mid, k, txt, task }, btn); $('#ch-txt').value = k === 'text' ? '' : $('#ch-txt').value; pollNow(); } catch (e) {} };
-    $('#ch-send').onclick = e => { const v = $('#ch-txt').value.trim(); if (v) send('text', v, null, e.target); };
+    $('#ch-send').onclick = e => { const v = $('#ch-txt').value.trim(); if (v) chatSend('text', v, null, e.target).then(ok => ok && ($('#ch-txt').value = '')); };
     $('#ch-txt').onkeydown = e => { if (e.key === 'Enter') $('#ch-send').click(); };
-    $('#ch-help').onclick = e => { const id = $('#ch-task').value; if (!id) return toast('Выберите задачу'); send('help', 'Помогите с задачей ' + tTitle(id), id, e.target); };
-    pan.querySelectorAll('[data-q]').forEach(b => b.onclick = e => send(b.dataset.q, b.dataset.q === 'done' ? 'Готово ✅' : 'Сейчас посмотрю 👀', null, e.target));
-    pan.addEventListener('click', e => {
-      const rx = e.target.closest('[data-rx]'); if (rx) { act({ a: 'react', code: ME.code, mid: ME.mid, msg: +rx.dataset.msg, emoji: rx.dataset.rx }).then(() => pollNow()).catch(() => {}); return; }
-      const g = e.target.closest('[data-goto]'); if (g) { e.preventDefault(); gotoTask(g.dataset.goto); }
-    });
+    $('#ch-help').onclick = e => { const id = $('#ch-task').value; if (!id) return toast('Помощь можно попросить только по своей открытой задаче'); chatSend('help', 'Помогите с задачей ' + tTitle(id), id, e.target); };
+    tab.querySelectorAll('[data-q]').forEach(b => b.onclick = e => chatSend(b.dataset.q, b.dataset.q === 'done' ? 'Готово ✅' : 'Сейчас посмотрю 👀', null, e.target));
+    tab.addEventListener('click', chatClicks);
   }
-  const ids = (s.pool || []).filter(id => { const x = t.tasks[id] || {}; return !['solved', 'failed', 'review'].includes(x.st); });
-  const sel = $('#ch-task'), opts = '<option value="">— задача —</option>' + ids.map(id => `<option value="${id}">${esc(tTitle(id))}${(t.tasks[id] || {}).to === ME.mid ? ' (моя)' : ''}</option>`).join('');
-  if (sel._o !== opts && document.activeElement !== sel) { const v = sel.value; sel.innerHTML = opts; sel._o = opts; sel.value = ids.includes(v) ? v : (ids.find(id => (t.tasks[id] || {}).to === ME.mid) || ''); }
+  // помощь — только по своим назначенным и ещё открытым задачам
+  const ids = (s.pool || []).filter(id => { const x = t.tasks[id]; return x && x.to === ME.mid && !CLOSED(x); });
+  const sel = $('#ch-task'), opts = (ids.length ? '<option value="">— моя открытая задача —</option>' : '<option value="">нет открытых задач</option>') + ids.map(id => `<option value="${id}">${esc(tTitle(id))}</option>`).join('');
+  if (sel._o !== opts && document.activeElement !== sel) { const v = sel.value; sel.innerHTML = opts; sel._o = opts; sel.value = ids.includes(v) ? v : (ids[0] || ''); }
+  $('#ch-help').disabled = !ids.length;
   const chat = t.chat || [], html = chat.map(m => chatMsgHtml(m, false, ME.mid)).join('') || '<div class="muted">Пока тихо. Напишите команде!</div>';
   const list = $('#ch-list');
   if (list._h !== html) { const atEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 40; list.innerHTML = html; list._h = html; if (atEnd || !list._init) list.scrollTop = list.scrollHeight; list._init = 1; }
-  if (!pan.hidden) markRead();
-  const rk = 'pq_chatread_' + s.code + '_' + t.tid, read = store.get(rk) || 0, unread = chat.filter(m => m.id > read && m.mid !== ME.mid).length, b = $('#chatbadge');
-  b.hidden = !unread; b.textContent = unread > 9 ? '9+' : unread;
+  if (TAB === 'chat' && !document.hidden) markRead();
+  const rk = 'pq_chatread_' + s.code + '_' + t.tid, read = store.get(rk) || 0;
+  tabBadge('chat', chat.filter(m => m.id > read && m.mid !== ME.mid).length);
 }
-function markRead() { const t = S && S.team; if (!t || !t.chat) return; const last = t.chat.length ? t.chat[t.chat.length - 1].id : 0; store.set('pq_chatread_' + S.code + '_' + t.tid, last); const b = $('#chatbadge'); if (b) b.hidden = true; }
-function gotoTask(id) {
+async function chatSend(k, txt, task, btn) { try { await act({ a: 'chat', code: ME.code, mid: ME.mid, k, txt, task }, btn); pollNow(); return true; } catch (e) { return false; } }
+function chatClicks(e) {
+  const rx = e.target.closest('[data-rx]'); if (rx) { act({ a: 'react', code: ME.code, mid: ME.mid, msg: +rx.dataset.msg, emoji: rx.dataset.rx }).then(() => pollNow()).catch(() => {}); return; }
+  const g = e.target.closest('[data-goto]'); if (g) { e.preventDefault(); gotoTask(g.dataset.goto, g.dataset.tid); }
+}
+function markRead() { const t = S && S.team; if (!t || !t.chat) return; const last = t.chat.length ? t.chat[t.chat.length - 1].id : 0; store.set('pq_chatread_' + S.code + '_' + t.tid, last); tabBadge('chat', 0); }
+function gotoTask(id, tid) {
+  if (!S.me) return openHelp(id, tid);                     // учитель
   const c = taskCards[id];
-  if (c) { if (c.open) c.open(); c.el.scrollIntoView({ behavior: 'smooth', block: 'center' }); c.el.classList.add('flash'); setTimeout(() => c.el.classList.remove('flash'), 1500); return; }
-  const tk = TASK[id], x = (S.team.tasks || {})[id] || {}, who = (S.team.members.find(m => m.mid === x.to) || {}).fio;
-  toast(`${tTitle(id)} — ${who ? 'исполнитель: ' + who : 'пока не назначена'}`, 4000);
-  const d = document.querySelector('#main details'); if (d) { d.open = true; d.scrollIntoView({ behavior: 'smooth' }); }
+  if (c) { if (TAB !== 'tasks') setTab('tasks'); openTask(id); return; }
+  openHelp(id);
+}
+// просмотр чужой задачи (товарищ по ссылке «Помогите» / учитель): условие, статус, попытки, текущий код исполнителя
+async function openHelp(id, tid) {
+  const tk = TASK[id]; if (!tk) return;
+  let m = $('#helpmodal'); if (m) m.remove();
+  m = document.createElement('div'); m.id = 'helpmodal';
+  m.innerHTML = `<div class="hm-box"><div class="tv-h"><button class="sec" id="hm-x">← Назад</button><b class="tv-t">Помощь: ${esc(tk.title)}</b></div>
+    <div class="hm-body"><div><span class="pill ${tk.cat}">${catLabel(tk)}</span> <span class="muted">${tk.pts} б.</span></div><div id="hm-meta" class="muted">Загрузка…</div>
+    <div class="desc">${tk.desc}</div>${tk.kind === 'mc' ? `<ol class="opts">${tk.options.map(o => `<li>${esc(o)}</li>`).join('')}</ol>` : tk.kind === 'order' ? `<ol class="opts">${tk.options.map(o => `<li><code>${esc(o)}</code></li>`).join('')}</ol>` : ''}
+    <div id="hm-code"></div>
+    ${S.me ? `<div class="hm-reply"><div class="btnrow"><button class="sec" data-hq="look">👀 Сейчас посмотрю</button></div><div class="ch-in"><input id="hm-txt" maxlength="200" placeholder="Подсказка в чат команды" autocomplete="off"><button id="hm-send">➤</button></div></div>` : '<p class="muted">Только просмотр</p>'}</div></div>`;
+  document.body.appendChild(m); history.pushState({ hm: 1 }, '');
+  $('#hm-x').onclick = () => m.remove();
+  if (S.me) {
+    guardInput($('#hm-txt'), 'chat');
+    const send = (k, txt, btn) => chatSend(k, txt, null, btn).then(ok => { if (ok) { toast('Отправлено в чат'); if (k === 'text') $('#hm-txt').value = ''; } });
+    m.querySelector('[data-hq]').onclick = e => send('look', 'Сейчас посмотрю 👀 ' + tTitle(id), e.target);
+    $('#hm-send').onclick = e => { const v = $('#hm-txt').value.trim(); if (v) send('text', v, e.target); };
+    $('#hm-txt').onkeydown = e => { if (e.key === 'Enter') $('#hm-send').click(); };
+  }
+  const load = async () => {
+    try {
+      const r = await api(S.me ? { a: 'peek', code: S.code, mid: ME.mid, task: id } : { a: 'peek', code: S.code, key: (store.get('pq_teacher') || {}).key, tid, task: id });
+      if (!document.body.contains(m)) return;
+      $('#hm-meta').innerHTML = `Исполнитель: <b>${esc(r.to || '—')}</b> · статус: <b class="st-${r.st || ''}">${ST[r.st] || 'не начата'}</b> · попыток: ${r.att}`;
+      const src = r.draft ? r.draft.src : (tk.kind === 'code' ? tk.starter : null);
+      $('#hm-code').innerHTML = tk.kind === 'code' ? `<div class="muted">${r.draft ? 'Текущий код исполнителя (обновлён ' + hhmm(r.draft.at) + ')' : 'Исполнитель ещё не писал код — показан шаблон'}:</div><pre class="code">${esc(src)}</pre>` : '';
+    } catch (e) { $('#hm-meta').textContent = '⚠ ' + e.message; }
+  };
+  load(); const iv = setInterval(() => document.body.contains(m) ? load() : clearInterval(iv), 6000);
 }
 
 // ---------- блиц ----------
@@ -567,7 +660,7 @@ function tFinished(s) {
 function tFinish(t) { return ''; }
 function tChat(t) {
   if (t.solo) return ''; const ch = t.chat || [];
-  return `<details data-chat="${t.tid}" class="tchat"><summary>💬 Чат (${ch.length})</summary><div class="ch-ro">${ch.map(m => chatMsgHtml(m, true, null)).join('') || '<div class="muted">Сообщений нет</div>'}</div></details>`;
+  return `<details data-chat="${t.tid}" class="tchat"><summary>💬 Чат (${ch.length})</summary><div class="ch-ro">${ch.map(m => chatMsgHtml(m, true, null, t.tid)).join('') || '<div class="muted">Сообщений нет</div>'}</div></details>`;
 }
 
 home();
