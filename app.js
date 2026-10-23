@@ -1,7 +1,7 @@
 'use strict';
 const POLL_MS = 2000;
-const CAT = { code: 'Python', fun: 'Python-игра', logic: 'Логика', arch: 'Архитектура ЭВМ', math: 'Математика', free: 'Свободный ответ' };
-const catLabel = tk => tk.cat === 'fun' ? '🎮 ' + tk.sub : tk.cat === 'free' ? '📝 ' + CAT.free : CAT[tk.cat] || '';
+const CAT = { code: 'Python', fun: 'Python-игра', prog: 'Python без кода', logic: 'Логика', arch: 'Архитектура ЭВМ', math: 'Математика', free: 'Свободный ответ' };
+const catLabel = tk => tk.kind === 'code' && tk.cat !== 'fun' ? '⌨️ Код' : tk.cat === 'prog' ? '🧩 ' + tk.sub : tk.cat === 'fun' ? '🎮 ' + tk.sub + (tk.kind === 'code' ? ' ⌨️' : '') : tk.cat === 'free' ? '📝 ' + CAT.free : CAT[tk.cat] || '';
 const RATING_HELP = 'Как считается рейтинг: Рейтинг % = баллы ÷ максимум баллов своего пула × 100 + бонус. Пул зависит от числа людей (~12–13 задач на человека: соло 15, двое 25, трое 38, четверо 50), поэтому нагрузка равная. Бонус: каждое «первым решил» и очки блица = +1 п.п. на человека (сумма бонусов ÷ участников), максимум +15. Место финиша: сначала доля закрытых задач, при равенстве — время.';
 const rHelp = () => `<span class="rhelp" title="${RATING_HELP}">ⓘ Как считается рейтинг</span>`;
 const STATUS = { lobby: 'Сбор команд', election: 'Выборы капитанов', running: 'Решение задач', closed: 'Завершено' };
@@ -60,17 +60,18 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js?v=12'); wReady = false;
+  worker = new Worker('pyworker.js?v=13'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
-function runPy(code, tests) {
+const caseStrict = tk => /upper|lower|capitalize|title|регистр|заглав|строчн|прописн/i.test((tk.desc || '') + (tk.tests || ''));
+function runPy(code, tests, ci = true) {
   if (!worker) newWorker();
   return new Promise(res => {
     const id = ++wSeq; let timer = null;
     const arm = () => { timer = setTimeout(() => { delete wWait[id]; worker.terminate(); worker = null; res({ out: '', ok: false, msg: '⏱ Превышено время выполнения (8 с). Возможно, бесконечный цикл.' }); }, 8000); };
     wWait[id] = d => { clearTimeout(timer); clearInterval(wi); res(d); };
     const wi = setInterval(() => { if (wReady && !timer) arm(); }, 100);
-    worker.postMessage({ id, code, tests: tests ?? null });
+    worker.postMessage({ id, code, tests: tests ?? null, ci });
   });
 }
 
@@ -382,7 +383,11 @@ function renderRunning(main, s) {
         return `<div class="pcard"><div><span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></div><div class="prow">${sel}<span class="st-${x.st || ''}">${x.to || x.st ? ST[x.st] || '' : ''}</span></div></div>`;
       }).join('');
       const na = s.pool.filter(id => !(t.tasks[id] || {}).to).length;
-      html = `<details class="card" id="pooldet" ${main._open ? 'open' : ''}><summary><b>★ Распределение задач</b> <span class="muted">пул ${s.pool.length} · не назначено ${na}</span></summary>${rows}</details>`;
+      const isCode = id => (TASK[id] || {}).kind === 'code', nCode = s.pool.filter(isCode).length, per = Math.round(nCode / t.members.length * 10) / 10;
+      const load = t.members.map(m => { const my = s.pool.filter(id => (t.tasks[id] || {}).to === m.mid), c = my.filter(isCode).length;
+        return `<span class="ld ${c > Math.ceil(nCode / t.members.length) ? 'over' : ''}">${esc(m.fio.split(' ')[0])}: ${my.length} (⌨️ ${c})</span>`; }).join('');
+      html = `<details class="card" id="pooldet" ${main._open ? 'open' : ''}><summary><b>★ Распределение задач</b> <span class="muted">пул ${s.pool.length} · не назначено ${na}</span></summary>
+        <div class="caphint">⚖️ Честно: задач с кодом ⌨️ — ${nCode}, т.е. ~${per} на человека (≈3–4). Раздайте их поровну, остальные — без кода.</div><div class="loads">${load}</div>${rows}</details>`;
     } else if (!t.solo) html = `<div class="muted cap">Задачи распределяет капитан ★ ${esc(name(t.captain))}</div>`;
     if (main._html !== html) { main.innerHTML = html; main._html = html; const d = $('#pooldet'); if (d) d.ontoggle = () => main._open = d.open; }
     main.querySelectorAll('[data-assign]').forEach(sel => sel.onchange = () => act({ a: 'assign', code: ME.code, mid: ME.mid, task: sel.dataset.assign, to: sel.value }).catch(() => {}));
@@ -429,7 +434,7 @@ function makeCard(tk, box) {
       : tk.kind === 'order' ? `<ol class="order">${tk.options.map((o, i) => `<li data-i="${i}"><button class="sec up">↑</button><button class="sec dn">↓</button><code>${esc(o).replace(/ /g, '&nbsp;')}</code></li>`).join('')}</ol><button class="send wide">Проверить порядок</button> <span class="muted">Попыток: ${left}</span>`
       : tk.kind === 'free' ? `<textarea class="freeans" rows="6" placeholder="Ваш ответ (минимум пару предложений)"></textarea><button class="send wide">Отправить на проверку</button> <span class="muted">Проверит преподаватель, бонус до 3 баллов</span>`
       : tk.kind === 'mc' ? `<div class="mc">${tk.options.map((o, i) => `<label><input type="radio" name="o_${tk.id}" value="${i}"> ${esc(o)}</label>`).join('')}</div><button class="send wide">Ответить</button> <span class="muted">Попыток: ${left}</span>`
-      : `<input class="ans" placeholder="Ваш ответ" autocomplete="off" autocapitalize="off"> <button class="send wide">Ответить</button> <span class="muted">Попыток: ${left}</span>`}
+      : `<input class="ans" placeholder="Ваш ответ" autocomplete="off" autocapitalize="off" ${tk.kind === 'num' && tk.cat === 'prog' ? 'inputmode="numeric"' : ''}> <button class="send wide">Ответить</button> <span class="muted">Попыток: ${left}</span>`}
     <div class="sub"></div><div class="res"></div>`;
   box.appendChild(el);
   const c = { el, tk }, ak = 'pq_ans_' + ME.code + '_' + tk.id, saveAns = v => store.set(ak, v);
@@ -450,7 +455,7 @@ function makeCard(tk, box) {
     el.querySelector('.run').onclick = async e => { c.runs = (c.runs || 0) + 1; e.target.disabled = true; out.textContent = worker && wReady ? '…' : 'Загрузка Python (первый раз ~10 с)…'; sync(); const r = await runPy(c.ed.getValue()); out.textContent = r.out + (r.msg ? '\n' + r.msg : ''); e.target.disabled = false; };
     el.querySelector('.send').onclick = async e => {
       c.runs = (c.runs || 0) + 1; e.target.disabled = true; out.textContent = 'Проверка…'; sync();
-      const r = await runPy(c.ed.getValue(), tk.tests); out.textContent = r.out + (r.msg ? '\n' + r.msg : '') + (r.ok ? '\n✔ Все тесты пройдены' : '');
+      const r = await runPy(c.ed.getValue(), tk.tests, !caseStrict(tk)); out.textContent = r.out + (r.msg ? '\n' + r.msg : '') + (r.ok ? '\n✔ Все тесты пройдены' : '');
       if (!r.ok) { e.target.disabled = false; return; }
       try { await act({ a: 'submit', code: ME.code, mid: ME.mid, task: tk.id, passed: true, src: withPasteNote(c.ed.getValue(), tk.id), paste: pasteInfo(tk.id), runs: c.runs }); } catch (x) { e.target.disabled = false; }
     };

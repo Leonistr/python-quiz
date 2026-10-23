@@ -159,3 +159,10 @@ button.red-o{color:#b91c1c;border-color:#fca5a5;margin-top:10px}
 #nslot.assign{background:#2563eb}#nslot.blitz{background:#d97706}#nslot.help{background:#b45309}#nslot.fin{background:#059669}
 #blbadge{cursor:pointer}
 .fd{font-size:14px;padding:5px 0;border-bottom:1px solid #eee}.fd.unread{font-weight:600}
+.pill.prog{background:#fff3c4}
+.caphint{background:#eef6ff;border-radius:8px;padding:6px 9px;margin:6px 0;font-size:14px}
+.loads{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}.ld{background:#f1f5f9;border-radius:12px;padding:3px 9px;font-size:13px}.ld.over{background:#fee2e2;color:#b91c1c}
+.out .fb{white-space:pre-wrap}
+.mc label{display:flex!important;align-items:center;gap:10px;font-family:inherit}
+.mc input[type=radio]{width:22px!important;height:22px;min-height:0;flex:none;margin:0;padding:0}
+.mc label:has(input:checked){border-color:#2563eb;background:#eef4ff}
