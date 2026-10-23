@@ -152,3 +152,10 @@ table{display:block;overflow-x:auto}
 button.kick{background:#fee2e2;color:#b91c1c;border:1px solid #fca5a5;padding:4px 10px;min-height:32px;font-size:14px;margin:0}
 button.red-o{color:#b91c1c;border-color:#fca5a5;margin-top:10px}
 .loose{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 0;border-bottom:1px solid #eee}.loose button{margin-left:auto}
+/* v12: единственный слот уведомлений */
+#toast,#toastbox{display:none!important}
+#nslot{position:fixed;left:50%;top:calc(58px + env(safe-area-inset-top));transform:translate(-50%,-140%);opacity:0;z-index:80;background:#1e293b;color:#fff;font-size:14px;font-weight:600;padding:8px 14px;border-radius:10px;box-shadow:0 4px 14px #0003;max-width:calc(100% - 32px);text-align:center;pointer-events:none;transition:transform .25s,opacity .25s}
+#nslot.show{transform:translate(-50%,0);opacity:1}#nslot.click{pointer-events:auto;cursor:pointer}
+#nslot.assign{background:#2563eb}#nslot.blitz{background:#d97706}#nslot.help{background:#b45309}#nslot.fin{background:#059669}
+#blbadge{cursor:pointer}
+.fd{font-size:14px;padding:5px 0;border-bottom:1px solid #eee}.fd.unread{font-weight:600}

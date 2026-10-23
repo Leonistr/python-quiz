@@ -9,7 +9,37 @@ const TASK = Object.fromEntries(BANK.map(t => [t.id, t]));
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const store = { get: k => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } }, set: (k, v) => localStorage.setItem(k, JSON.stringify(v)), del: k => localStorage.removeItem(k) };
-function toast(msg, ms = 3000) { const t = $('#toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => t.style.display = 'none', ms); }
+// Ответ на действие пользователя (ошибка, «Верно!» и т.п.) — тот же единственный слот сверху, без очереди
+function toast(msg, ms = 2500) { showSlot(msg, Math.min(ms, 4000)); }
+// ---------- уведомления (v12): один маленький тост сверху, без стопок, без звука ----------
+const SS = { get: k => { try { return JSON.parse(sessionStorage.getItem(k)); } catch (e) { return null; } }, set: (k, v) => { try { sessionStorage.setItem(k, JSON.stringify(v)); } catch (e) {} } };
+function showSlot(msg, ms = 2500, cls = '', onclick = null) {
+  let d = $('#nslot'); if (!d) { d = document.createElement('div'); d.id = 'nslot'; document.body.appendChild(d); }
+  d.className = 'show ' + cls + (onclick ? ' click' : ''); d.textContent = msg; d.onclick = onclick ? () => { d.className = ''; onclick(); } : null;
+  clearTimeout(showSlot.h); showSlot.h = setTimeout(() => d.className = '', ms);
+}
+const isTyping = () => { const a = document.activeElement; return !!a && (a.matches('input:not([type=radio]):not([type=checkbox]), textarea, select, [contenteditable]') || !!a.closest('.CodeMirror, .cm-editor')); };
+let nQueue = null;
+// Прерывающее уведомление. id — для дедупликации (sessionStorage), не показывается повторно после перезагрузки/поллинга
+function notify(id, msg, opt = {}) {
+  const seen = SS.get('pq_nseen') || []; if (seen.includes(id)) return; seen.push(id); SS.set('pq_nseen', seen.slice(-300));
+  if (opt.vibrate && navigator.vibrate) try { navigator.vibrate(120); } catch (e) {}
+  if (isTyping()) { nQueue = { msg, opt, at: Date.now() }; return; }
+  showSlot(msg, 2500, opt.cls || '', opt.onclick || null);
+}
+document.addEventListener('focusout', () => setTimeout(() => { if (!nQueue || isTyping()) return; const q = nQueue; nQueue = null; if (Date.now() - q.at <= 30000) showSlot(q.msg, 2500, q.opt.cls || '', q.opt.onclick || null); }, 150));
+// Тихие события: запись в «Ленту» + счётчик на вкладке
+function feed(id, txt, tab = 'teams') {
+  const k = 'pq_feed_' + ((S && S.code) || ''), F = SS.get(k) || [];
+  if (F.some(f => f.id === id)) return; F.push({ id, txt, at: Date.now(), tab, read: TAB === tab }); SS.set(k, F.slice(-60)); renderFeed();
+}
+function renderFeed() {
+  const el = $('#feed'); if (!el || !S) return; const F = (SS.get('pq_feed_' + S.code) || []).slice().reverse();
+  const h = `<div class="card"><h3>🔔 Лента</h3>${F.length ? F.slice(0, 30).map(f => `<div class="fd ${f.read ? '' : 'unread'}"><span class="muted">${hhmm(f.at)}</span> ${esc(f.txt)}</div>`).join('') : '<div class="muted">Пока событий нет</div>'}</div>`;
+  if (el._h !== h) { el.innerHTML = h; el._h = h; }
+  tabBadge('teams', F.filter(f => !f.read && f.tab === 'teams').length);
+}
+function feedRead(tab) { if (!S) return; const k = 'pq_feed_' + S.code, F = SS.get(k) || []; F.forEach(f => { if (f.tab === tab) f.read = true; }); SS.set(k, F); }
 
 // ---------- API ----------
 async function api(p, post) {
@@ -30,7 +60,7 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js?v=11'); wReady = false;
+  worker = new Worker('pyworker.js?v=12'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
 function runPy(code, tests) {
@@ -195,7 +225,7 @@ function studentStart(s) {
   $('#app').innerHTML = `<div id="hdr" class="hdr"></div>
     <section class="tab" id="tab-tasks"><div id="main"></div><div id="mylist"></div></section>
     <section class="tab" id="tab-chat" hidden></section>
-    <section class="tab" id="tab-teams" hidden><aside id="side"></aside></section>
+    <section class="tab" id="tab-teams" hidden><aside id="side"></aside><div id="feed"></div></section>
     <section class="tab" id="tab-me" hidden></section>
     <div id="cardstore" hidden></div>
     <nav id="tabs">${[['tasks', '📋', 'Задачи'], ['chat', '💬', 'Чат'], ['teams', '🏆', 'Команды'], ['me', '👤', 'Моё']].map(([k, i, n]) => `<button data-tab="${k}" class="${k === TAB ? 'on' : ''}"><span class="ti">${i}</span><span>${n}</span><b class="tb" id="tb-${k}" hidden></b></button>`).join('')}</nav>`;
@@ -207,7 +237,8 @@ function setTab(k) {
   TAB = k; closeTask();
   document.querySelectorAll('#tabs [data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === k));
   ['tasks', 'chat', 'teams', 'me'].forEach(x => { const el = $('#tab-' + x); if (el) el.hidden = x !== k; });
-  if (k === 'chat') { markRead(); const l = $('#ch-list'); if (l) l.scrollTop = l.scrollHeight; }
+  if (k === 'teams') { feedRead('teams'); renderFeed(); }
+  if (k === 'chat') { feedRead('chat'); markRead(); const l = $('#ch-list'); if (l) l.scrollTop = l.scrollHeight; }
   scrollTo(0, 0);
 }
 function tabBadge(k, n) { const b = $('#tb-' + k); if (!b) return; b.hidden = !n; b.textContent = n > 9 ? '9+' : n; }
@@ -217,12 +248,12 @@ function renderStudent() {
     const ak = store.get('pq_disb') || {}, kk = s.code + s.me.wasIn;
     if (!ak[kk]) { ak[kk] = 1; store.set('pq_disb', ak); stopPoll(); closeExtras(); store.del('pq_student'); toast('Преподаватель расформировал вашу команду. Выберите новую или играйте соло.', 6000); return wizard('choice'); }
   }
-  if (t && s.pool) { const pk = s.code + t.tid; if (growSeen.k === pk && s.pool.length > growSeen.n) toast('📌 В команду добавлено задач: ' + (s.pool.length - growSeen.n) + (t.captain === ME.mid ? ' — распределите их!' : ''), 5000); growSeen = { k: pk, n: s.pool.length }; }
+  if (t && s.pool) { const pk = s.code + t.tid; if (growSeen.k === pk && s.pool.length > growSeen.n) feed('grow:' + pk + ':' + s.pool.length, '📌 В команду добавлено задач: ' + (s.pool.length - growSeen.n) + (t.captain === ME.mid ? ' — распределите их!' : ''), 'teams'); growSeen = { k: pk, n: s.pool.length }; }
   $('#hdr').innerHTML = `<div class="h1"><b>${esc(s.me.fio)}</b> <span class="muted">${esc(s.me.group)} · ${s.code}</span></div>
     <div class="h2">${t ? `${t.solo ? '🧑‍💻 соло' : '👥 ' + esc(t.name)} · <b class="rt">${t.rating || 0}%</b> <span class="muted">${t.pts} б.</span>${t.finished ? ' · 🏁' + t.finished.place : ''}` : esc(STATUS[s.status])}</div>`;
   renderSide(s); renderMe(s);
   if (t && t.captain && !t.solo) maybeReveal(s);
-  renderChat(s); renderBlitz(s); maybeFinale(s);
+  renderChat(s); renderBlitz(s); maybeFinale(s); renderFeed();
   const main = $('#main');
   if (s.status !== 'running') { $('#mylist').innerHTML = ''; main._html = null; }
   if (s.status === 'closed') { main.innerHTML = board(s); return; }
@@ -464,23 +495,16 @@ function board(s) {
     ${rHelp()}<table><tr><th>#</th><th>Команда</th><th>Чел.</th><th>Решено</th><th>Рейтинг</th><th>Баллы</th><th>Место финиша</th></tr>${b.map((t, i) => `<tr><td>${['🥇', '🥈', '🥉'][i] || i + 1}</td><td>${esc(t.name)}</td><td>${t.n}</td><td>${t.solved}/${t.total}</td><td><b>${t.rating}%</b></td><td class="muted">${t.pts}</td><td>${t.rank}</td></tr>`).join('')}</table></div>`;
 }
 // ---------- события, тосты ----------
-function ntoast(msg, ms = 5000, cls = '', onclick = null) {
-  let box = $('#toastbox'); if (!box) { box = document.createElement('div'); box.id = 'toastbox'; document.body.appendChild(box); }
-  const d = document.createElement('div'); d.className = 'ntoast ' + cls; while (box.children.length >= 4) box.firstChild.remove();
-  d.textContent = msg; if (onclick) { d.classList.add('click'); d.onclick = () => { onclick(); d.remove(); }; } box.appendChild(d);
-  setTimeout(() => { d.classList.add('out'); setTimeout(() => d.remove(), 400); }, ms);
-}
 const tTitle = id => { const tk = TASK[id]; if (!tk) return id; const n = S && S.pool ? S.pool.indexOf(id) : -1; return (n >= 0 ? '№' + (n + 1) + ' ' : '') + '«' + tk.title + '»'; };
-function onEvents(ev) {
-  const firsts = ev.filter(e => e.type === 'first'), by = {};
-  firsts.forEach(e => (by[e.fio + '|' + e.team] = by[e.fio + '|' + e.team] || []).push(e));
-  Object.values(by).forEach(L => { if (L.length <= 2) L.forEach(onEvent); else { const e = L[0]; ntoast(`⚡ ${e.fio} (${e.team === 'Соло' ? 'соло' : 'команда ' + e.team}) первым решил ${L.length} задач подряд!`, 5000, 'first'); } });
-  ev.filter(e => e.type !== 'first').forEach(onEvent);
-}
+function onEvents(ev) { ev.forEach(onEvent); }
 function onEvent(e) {
-  if (e.type === 'first') ntoast(`⚡ ${e.fio} (${e.team === 'Соло' ? 'соло' : 'команда ' + e.team}) первым решил задачу «${(TASK[e.task] || {}).title || e.task}»`, 5000, 'first');
-  else if (e.type === 'finish') { if (!(S.team && S.team.tid === e.tid)) ntoast(`🏁 ${/^Соло: /.test(e.team) ? e.team : 'Команда ' + e.team} закончила все задания! (место ${e.place})`, 7000, 'fin'); }
-  else if (e.type === 'blitz' && !S.me) ntoast(`⚡ Блиц-раунд #${e.n} запущен`, 4000);
+  const id = 'ev:' + S.code + ':' + e.id, team = e.team === 'Соло' ? 'соло' : 'команда ' + e.team;
+  if (!S.me) { // преподаватель: тоже один тихий слот
+    if (e.type === 'finish') notify(id, `🏁 ${/^Соло: /.test(e.team) ? e.team : 'Команда ' + e.team} закончила все задания (место ${e.place})`, { cls: 'fin' });
+    return;
+  }
+  if (e.type === 'first') { if (e.fio !== S.me.fio) feed(id, `⚡ ${e.fio} (${team}) первым решил «${(TASK[e.task] || {}).title || e.task}»`); }
+  else if (e.type === 'finish') { if (!(S.team && S.team.tid === e.tid)) feed(id, `🏁 ${/^Соло: /.test(e.team) ? e.team : 'Команда ' + e.team} закончила все задания (место ${e.place})`); }
 }
 function closeExtras() { ['#blitz', '#finale', '#blbadge', '#taskview', '#helpmodal'].forEach(q => { const x = $(q); if (x) x.remove(); }); }
 const hhmm = at => new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
@@ -488,19 +512,14 @@ const REACT = ['👍', '😂', '🔥', '❓', '✅'];
 
 // ---------- уведомления о назначении ----------
 let prevMine = null;
-function ding() { try { const C = window._ac || (window._ac = new (window.AudioContext || window.webkitAudioContext)()), o = C.createOscillator(), g = C.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(880, C.currentTime); o.frequency.exponentialRampToValueAtTime(1320, C.currentTime + .12); g.gain.setValueAtTime(.0001, C.currentTime); g.gain.exponentialRampToValueAtTime(.12, C.currentTime + .02); g.gain.exponentialRampToValueAtTime(.0001, C.currentTime + .45); o.connect(g).connect(C.destination); o.start(); o.stop(C.currentTime + .5); window._dings = (window._dings || 0) + 1; } catch (e) {} }
-document.addEventListener('pointerdown', () => { try { window._ac && window._ac.resume(); } catch (e) {} });
 function notifyAssign(s, mine) {
   const t = s.team, sk = 'pq_seen_' + s.code + '_' + ME.mid; let seen = store.get(sk);
   if (!seen) { seen = mine.slice(); store.set(sk, seen); }
   if (t.solo) { prevMine = mine.slice(); seen = mine; store.set(sk, seen); }
   if (prevMine && !t.solo) {
     const add = mine.filter(id => !prevMine.includes(id)), gone = prevMine.filter(id => !mine.includes(id));
-    if (add.length) {
-      const go = () => gotoTask(add[0]);
-      ntoast(add.length === 1 ? `📌 Капитан назначил вам задачу ${tTitle(add[0]).replace(/^№/, '')}` : `📌 Вам назначено ${add.length} ${add.length < 5 ? 'задачи' : 'задач'} — нажмите, чтобы перейти`, 7000, 'assign', go); ding();
-    }
-    if (gone.length) ntoast(gone.length === 1 ? `↩ Капитан снял с вас задачу ${tTitle(gone[0]).replace(/^№/, '')}` : `↩ С вас снято задач: ${gone.length}`, 5000, 'unassign');
+    if (add.length) notify('as:' + s.code + ':' + add.slice().sort().join(','), '📌 Вам назначено задач: ' + add.length, { cls: 'assign', onclick: () => gotoTask(add[0]) });
+    if (gone.length) feed('un:' + s.code + ':' + gone.slice().sort().join(',') + ':' + Date.now(), `↩ С вас снято задач: ${gone.length}`, 'tasks');
   }
   prevMine = mine.slice();
   seen = seen.filter(id => mine.includes(id)); store.set(sk, seen);
@@ -547,6 +566,13 @@ function renderChat(s) {
   const chat = t.chat || [], html = chat.map(m => chatMsgHtml(m, false, ME.mid)).join('') || '<div class="muted">Пока тихо. Напишите команде!</div>';
   const list = $('#ch-list');
   if (list._h !== html) { const atEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 40; list.innerHTML = html; list._h = html; if (atEnd || !list._init) list.scrollTop = list.scrollHeight; list._init = 1; }
+  // тихо: новые сообщения → Лента + счётчик «Чат»; прерывает только просьба о помощи (один раз)
+  const ck = 'pq_chatseen_' + s.code + '_' + t.tid, cs = SS.get(ck);
+  if (cs == null) SS.set(ck, chat.length ? chat[chat.length - 1].id : 0);
+  else { chat.filter(m => m.id > cs && m.mid !== ME.mid).forEach(m => {
+      if (m.k === 'help') notify('help:' + s.code + ':' + t.tid + ':' + m.id, `🆘 ${m.fio}: ${tTitle(m.task)}`, { cls: 'help', onclick: () => gotoTask(m.task) });
+      feed('ch:' + t.tid + ':' + m.id, (m.k === 'sys' ? '🤖 ' : '💬 ' + m.fio + ': ') + m.txt, 'chat'); });
+    if (chat.length) SS.set(ck, Math.max(cs, chat[chat.length - 1].id)); }
   if (TAB === 'chat' && !document.hidden) markRead();
   const rk = 'pq_chatread_' + s.code + '_' + t.tid, read = store.get(rk) || 0;
   tabBadge('chat', chat.filter(m => m.id > read && m.mid !== ME.mid).length);
@@ -619,26 +645,34 @@ function renderBlitz(s) {
     if (ov0 && ov0._p !== 'board' + b.n && !ov0._closing) ov0.remove();
     const tk2 = 'pq_blitzt_' + s.code + '_' + b.n;
     if (!store.get(tk2)) { store.set(tk2, 1); const mine = b.mine ? (b.mine.ok ? `✅ +${b.mine.pts}` : '❌ мимо') : 'без ответа'; const w = b.top[0];
-      ntoast(`⚡ Блиц #${b.n} окончен: ${mine}${w ? ' · 🥇 ' + w.fio : ''} — нажмите для таблицы`, 9000, 'blitzres', () => openBlitzBoard(S.blitz)); }
+      feed('blz:' + s.code + ':' + b.n, `⚡ Блиц #${b.n} окончен: ${mine}${w ? ' · 🥇 ' + w.fio : ''}`); }
     return;
   }
   if (b.mine) {                                   // ответил: коротко результат → бейдж в углу
     blitzBadge(b);
     if (ov0 && ov0._p !== 'res' + b.n && !ov0._closing) {
       ov0._p = 'res' + b.n; ov0._closing = 1;
-      ov0.innerHTML = `<div class="bl-box bl-res"><div class="bl-big">${b.mine.ok ? '✅ +' + b.mine.pts : '❌'}</div><p>${b.mine.ok ? 'Верно!' : 'Неверно'} Итоги — когда время выйдет.</p></div>`;
-      setTimeout(() => ov0.remove(), 2000);
+      ov0.remove(); toast(b.mine.ok ? `✅ Блиц: верно, +${b.mine.pts}` : '❌ Блиц: неверно');
     }
     return;
   }
-  blitzBadge(null);
   const phase = 'q' + b.n;
-  let ov = ov0; if (!ov) { ov = document.createElement('div'); ov.id = 'blitz'; document.body.appendChild(ov); }
-  if (ov._p === phase) { const n = ov.querySelector('.bl-n'); if (n) n.textContent = b.answers || 0; return; }
+  if (ov0 && ov0._p === phase) { const n = ov0.querySelector('.bl-n'); if (n) n.textContent = b.answers || 0; return; }
+  // не открываем окно сами: маленький тост + плашка «Ответить»
+  notify('blitz:' + s.code + ':' + b.n, `⚡ Блиц #${b.n}! Нажмите, чтобы ответить`, { cls: 'blitz', vibrate: true, onclick: () => openBlitzQ(S) });
+  let bd = $('#blbadge'); if (!bd) { bd = document.createElement('div'); bd.id = 'blbadge'; document.body.appendChild(bd); }
+  const bh = `⚡ Блиц #${b.n}: ответить · <span data-deadline="${b.end}"></span>`;
+  if (bd._h !== bh) { bd.innerHTML = bh; bd._h = bh; } bd.onclick = () => openBlitzQ(S);
+}
+function openBlitzQ(s) {
+  const b = s.blitz; if (!b || b.top || b.mine || !TASK[b.task]) return; const tk = TASK[b.task], phase = 'q' + b.n;
+  blitzBadge(null);
+  let ov = $('#blitz'); if (!ov) { ov = document.createElement('div'); ov.id = 'blitz'; document.body.appendChild(ov); }
   ov._p = phase;
   const inp = tk.kind === 'mc' ? `<div class="mc">${tk.options.map((o, i) => `<label><input type="radio" name="bl" value="${i}"> ${esc(o)}</label>`).join('')}</div>` : `<input class="ans" id="bl-ans" placeholder="Ваш ответ" autocomplete="off">`;
-  ov.innerHTML = `<div class="bl-box"><h2>⚡ Блиц #${b.n}!</h2><div class="bl-timer" data-deadline="${b.end}"></div><p class="muted">Первые верные: 3 / 2 / 1 балл. Попытка одна!</p><h3>${esc(tk.title)}</h3><p>${tk.desc}</p>${inp}<button id="bl-go">Ответить</button> <span class="muted">Ответили: <span class="bl-n">${b.answers || 0}</span></span></div>`;
+  ov.innerHTML = `<div class="bl-box"><h2>⚡ Блиц #${b.n}!</h2><div class="bl-timer" data-deadline="${b.end}"></div><p class="muted">Первые верные: 3 / 2 / 1 балл. Попытка одна!</p><h3>${esc(tk.title)}</h3><p>${tk.desc}</p>${inp}<button id="bl-go">Ответить</button> <button class="sec" id="bl-later">Позже</button> <span class="muted">Ответили: <span class="bl-n">${b.answers || 0}</span></span></div>`;
   if ($('#bl-ans')) { guardInput($('#bl-ans'), 'blitz' + b.n); $('#bl-ans').focus(); $('#bl-ans').onkeydown = e => { if (e.key === 'Enter') $('#bl-go').click(); }; }
+  $('#bl-later').onclick = () => { ov.remove(); renderBlitz(S); };
   $('#bl-go').onclick = async e => {
     const ans = tk.kind === 'mc' ? (ov.querySelector('input[type=radio]:checked') || {}).value : $('#bl-ans').value.trim();
     if (ans == null || ans === '') return toast('Введите ответ');
