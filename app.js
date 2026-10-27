@@ -1,6 +1,9 @@
 'use strict';
 const POLL_MS = 2000;
 const CAT = { code: 'Python', fun: 'Python-игра', prog: 'Python без кода', logic: 'Логика', arch: 'Архитектура ЭВМ', math: 'Математика', free: 'Свободный ответ' };
+const LVLN = ['', 'Легко', 'Средне', 'Сложно', 'Очень сложно'];
+const lvlPill = tk => tk && tk.lvl ? `<span class="lvl l${tk.lvl}" title="${LVLN[tk.lvl]}">${'★'.repeat(tk.lvl)}${'☆'.repeat(4 - tk.lvl)} ${tk.kind === 'free' ? 'до +3' : '+' + tk.pts}</span>` : '';
+let capLvl = 0;
 const catLabel = tk => tk.kind === 'code' && tk.cat !== 'fun' ? '⌨️ Код' : tk.cat === 'prog' ? '🧩 ' + tk.sub : tk.cat === 'fun' ? '🎮 ' + tk.sub + (tk.kind === 'code' ? ' ⌨️' : '') : tk.cat === 'free' ? '📝 ' + CAT.free : CAT[tk.cat] || '';
 const RATING_HELP = 'Как считается рейтинг: Рейтинг % = баллы ÷ максимум баллов своего пула × 100 + бонус. Пул зависит от числа людей (~12–13 задач на человека: соло 15, двое 25, трое 38, четверо 50), поэтому нагрузка равная. Бонус: каждое «первым решил» и очки блица = +1 п.п. на человека (сумма бонусов ÷ участников), максимум +15. Место финиша: сначала доля закрытых задач, при равенстве — время.';
 const rHelp = () => `<span class="rhelp" title="${RATING_HELP}">ⓘ Как считается рейтинг</span>`;
@@ -72,7 +75,7 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js?v=14'); wReady = false;
+  worker = new Worker('pyworker.js?v=15'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
 const caseStrict = tk => /upper|lower|capitalize|title|регистр|заглав|строчн|прописн/i.test((tk.desc || '') + (tk.tests || ''));
@@ -389,19 +392,23 @@ function renderRunning(main, s) {
   if (!keep) {
     let html = '';
     if (isCap) {
-      const rows = s.pool.map(id => {
+      const rows = s.pool.filter(id => !capLvl || (TASK[id] || {}).lvl === capLvl).slice().sort((a, b) => ((TASK[a] || {}).lvl || 0) - ((TASK[b] || {}).lvl || 0)).map(id => {
         const x = t.tasks[id] || {}, tk = TASK[id] || { title: id, cat: '' };
         const sel = !CLOSED(x) ? `<select data-assign="${id}"><option value="">— не назначена —</option>${t.members.map(m => `<option value="${m.mid}" ${x.to === m.mid ? 'selected' : ''}>${esc(m.fio)}</option>`).join('')}</select>` : `<span class="muted">${esc(name(x.to))}</span>`;
-        return `<div class="pcard"><div><span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></div><div class="prow">${sel}<span class="st-${x.st || ''}">${x.to || x.st ? ST[x.st] || '' : ''}</span></div></div>`;
+        return `<div class="pcard"><div>${lvlPill(tk)} <span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)}</div><div class="prow">${sel}<span class="st-${x.st || ''}">${x.to || x.st ? ST[x.st] || '' : ''}</span></div></div>`;
       }).join('');
       const na = s.pool.filter(id => !(t.tasks[id] || {}).to).length;
       const isCode = id => (TASK[id] || {}).kind === 'code', nCode = s.pool.filter(isCode).length, per = Math.round(nCode / t.members.length * 10) / 10;
-      const load = t.members.map(m => { const my = s.pool.filter(id => (t.tasks[id] || {}).to === m.mid), c = my.filter(isCode).length;
-        return `<span class="ld ${c > Math.ceil(nCode / t.members.length) ? 'over' : ''}">${esc(m.fio.split(' ')[0])}: ${my.length} (⌨️ ${c})</span>`; }).join('');
+      const ptsOf = L => L.reduce((a, id) => a + ((TASK[id] || {}).pts || 0), 0), fair = Math.round(ptsOf(s.pool) / t.members.length);
+      const load = t.members.map(m => { const my = s.pool.filter(id => (t.tasks[id] || {}).to === m.mid), c = my.filter(isCode).length, pp = ptsOf(my);
+        return `<span class="ld ${c > Math.ceil(nCode / t.members.length) || pp > fair + 3 ? 'over' : ''}">${esc(m.fio.split(' ')[0])}: ${my.length} · +${pp} (⌨️ ${c})</span>`; }).join('');
+      const byL = [1, 2, 3, 4].map(l => { const L = s.pool.filter(id => (TASK[id] || {}).lvl === l), free = L.filter(id => !(t.tasks[id] || {}).to).length; return `<button class="lvlf l${l} ${capLvl === l ? 'on' : ''}" data-lvl="${l}">${'★'.repeat(l)} +${l} · ${free}/${L.length}</button>`; }).join('');
       html = `<details class="card" id="pooldet" ${main._open ? 'open' : ''}><summary><b>★ Распределение задач</b> <span class="muted">пул ${s.pool.length} · не назначено ${na}</span></summary>
-        <div class="caphint">⚖️ Честно: задач с кодом ⌨️ — ${nCode}, т.е. ~${per} на человека (≈3–4). Раздайте их поровну, остальные — без кода.</div><div class="loads">${load}</div>${rows}</details>`;
+        <div class="caphint">⚖️ Честно: задач с кодом ⌨️ — ${nCode}, т.е. ~${per} на человека (≈3–4). Раздайте их поровну, остальные — без кода.</div><div class="caphint muted">Баллы по сложности: ★ +1 · ★★ +2 · ★★★ +3 · ★★★★ +4. Честная доля ≈ +${fair} на человека.</div><div class="loads">${load}</div>
+        <div class="lvlbar"><button class="lvlf ${capLvl ? '' : 'on'}" data-lvl="0">Все</button>${byL}</div>${rows}</details>`;
     } else if (!t.solo) html = `<div class="muted cap">Задачи распределяет капитан ★ ${esc(name(t.captain))}</div>`;
     if (main._html !== html) { main.innerHTML = html; main._html = html; const d = $('#pooldet'); if (d) d.ontoggle = () => main._open = d.open; }
+    main.querySelectorAll('[data-lvl]').forEach(b => b.onclick = () => { capLvl = +b.dataset.lvl; main._html = null; renderRunning(main, S); });
     main.querySelectorAll('[data-assign]').forEach(sel => sel.onchange = () => act({ a: 'assign', code: ME.code, mid: ME.mid, task: sel.dataset.assign, to: sel.value }).catch(() => {}));
   }
   const store_ = $('#cardstore'), mine = s.pool.filter(id => (t.tasks[id] || {}).to === ME.mid);
@@ -411,7 +418,7 @@ function renderRunning(main, s) {
   // список своих задач: открытые сверху, закрытые ниже
   const open = mine.filter(id => !CLOSED(t.tasks[id])), closed = mine.filter(id => CLOSED(t.tasks[id]));
   const cnt = { solved: 0, failed: 0, review: 0 }; closed.forEach(id => cnt[t.tasks[id].st]++);
-  const li = id => { const x = t.tasks[id], tk = TASK[id]; return `<button class="tcard st-b-${x.st}" data-open="${id}"><span class="tc-top"><span class="pill ${tk.cat}">${catLabel(tk)}</span><span class="tc-st st-${x.st}">${taskCards[id].el.querySelector('.newb') ? '<span class="newb">НОВАЯ</span>' : ''}${ST[x.st] || ''}</span></span><span class="tc-t">${esc(tk.title)}</span><span class="muted">${tk.pts} б.${x.att ? ' · попыток: ' + x.att : ''}</span></button>`; };
+  const li = id => { const x = t.tasks[id], tk = TASK[id]; return `<button class="tcard st-b-${x.st}" data-open="${id}"><span class="tc-top"><span>${lvlPill(tk)} <span class="pill ${tk.cat}">${catLabel(tk)}</span></span><span class="tc-st st-${x.st}">${taskCards[id].el.querySelector('.newb') ? '<span class="newb">НОВАЯ</span>' : ''}${ST[x.st] || ''}</span></span><span class="tc-t">${esc(tk.title)}</span><span class="muted">${tk.pts} б.${x.att ? ' · попыток: ' + x.att : ''}</span></button>`; };
   const lh = `<h2 class="lh">Мои задачи <span class="muted">${open.length} открыто · ✅ ${cnt.solved} · ❌ ${cnt.failed}${cnt.review ? ' · 📝 ' + cnt.review : ''}</span></h2>
     ${open.map(li).join('') || (closed.length ? '<div class="card muted">Все ваши задачи закрыты 🎉</div>' : `<div class="card muted" id="notasks">${t.solo ? '' : 'Капитан ещё не назначил вам задачи.'}</div>`)}
     ${closed.length ? `<h3 class="lh2">Закрытые</h3>${closed.map(li).join('')}` : ''}`;
@@ -441,7 +448,7 @@ const KEYROW = [['Tab', '    '], [':', ':'], ['( )', '()', 1], ['[ ]', '[]', 1],
 function makeCard(tk, box) {
   const el = document.createElement('div'); el.className = 'card task'; el.dataset.tid = tk.id;
   const left = { mc: 1, num: 2, text: 2, order: 2 }[tk.kind];
-  el.innerHTML = `<h3><span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)} <span class="muted">${tk.pts} б.</span></h3><div class="desc">${tk.desc}</div>
+  el.innerHTML = `<h3>${lvlPill(tk)} <span class="pill ${tk.cat}">${catLabel(tk)}</span> ${esc(tk.title)}</h3><div class="desc">${tk.desc}</div>
     ${tk.kind === 'code' ? `<textarea></textarea><div class="keyrow">${KEYROW.map((k, i) => `<button class="sec" data-k="${i}" tabindex="-1">${k[0]}</button>`).join('')}</div><div class="btnrow"><button class="sec run">▶ Запустить</button><button class="send">✔ Проверить и сдать</button></div><pre class="out"></pre>`
       : tk.kind === 'order' ? `<ol class="order">${tk.options.map((o, i) => `<li data-i="${i}"><button class="sec up">↑</button><button class="sec dn">↓</button><code>${esc(o).replace(/ /g, '&nbsp;')}</code></li>`).join('')}</ol><button class="send wide">Проверить порядок</button> <span class="muted">Попыток: ${left}</span>`
       : tk.kind === 'free' ? `<textarea class="freeans" rows="6" placeholder="Ваш ответ (минимум пару предложений)"></textarea><button class="send wide">Отправить на проверку</button> <span class="muted">Проверит преподаватель, бонус до 3 баллов</span>`
