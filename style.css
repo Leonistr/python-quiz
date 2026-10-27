@@ -166,3 +166,34 @@ button.red-o{color:#b91c1c;border-color:#fca5a5;margin-top:10px}
 .mc label{display:flex!important;align-items:center;gap:10px;font-family:inherit}
 .mc input[type=radio]{width:22px!important;height:22px;min-height:0;flex:none;margin:0;padding:0}
 .mc label:has(input:checked){border-color:#2563eb;background:#eef4ff}
+/* ===== v14: тёмная тема ===== */
+#themebtn{position:fixed;top:calc(6px + env(safe-area-inset-top));right:8px;z-index:90;width:38px;height:38px;min-height:0;padding:0;margin:0;border-radius:50%;border:1px solid #fff4;background:#0003;color:#fff;font-size:18px;line-height:1;display:flex;align-items:center;justify-content:center}
+header{padding-right:56px}body.student .hdr{padding-right:56px}
+html[data-theme=dark]{--bg:#0f141c;color-scheme:dark}
+html[data-theme=dark] body{color:#e5e9f0}
+html[data-theme=dark] header,html[data-theme=dark] .hdr,html[data-theme=dark] .tv-h{background:#161e2c}
+html[data-theme=dark] .card,html[data-theme=dark] .team,html[data-theme=dark] aside#side,html[data-theme=dark] #chatpanel,html[data-theme=dark] .rv-box,html[data-theme=dark] .bl-box,html[data-theme=dark] .fin-box,html[data-theme=dark] .sd-team,html[data-theme=dark] .tcard,html[data-theme=dark] .ach,html[data-theme=dark] .fm,html[data-theme=dark] .ch-h{background:#1a2230;color:#e5e9f0;box-shadow:0 1px 4px #0006;border-color:#2c3646}
+html[data-theme=dark] .sd-team.mine{background:#1d2a44;border-color:#3b6fd8}
+html[data-theme=dark] .muted{color:#97a3b6}
+html[data-theme=dark] input,html[data-theme=dark] select,html[data-theme=dark] textarea{background:#0f1520;color:#e5e9f0;border-color:#364257}
+html[data-theme=dark] input::placeholder,html[data-theme=dark] textarea::placeholder{color:#6b778a}
+html[data-theme=dark] button.sec{background:#2a3446;color:#e5e9f0;border-color:#3a465a}
+html[data-theme=dark] #tabs{background:#161e2c;border-top-color:#2c3646}html[data-theme=dark] #tabs button{color:#aab4c5}html[data-theme=dark] #tabs button.on{color:#7aa7ff}
+html[data-theme=dark] pre.code,html[data-theme=dark] code{background:#0b1018;color:#d6deeb}
+html[data-theme=dark] .msg{background:#232d3d;color:#e5e9f0}html[data-theme=dark] .msg.me{background:#1f3a66}html[data-theme=dark] .msg.k-sys{background:#3a3418;color:#f3e7b3}
+html[data-theme=dark] .mc label{border-color:#364257}html[data-theme=dark] .mc label:has(input:checked){background:#1f3a66;border-color:#5b8cff}
+html[data-theme=dark] ol.order li{background:#141b27;border-color:#364257}
+html[data-theme=dark] .pcard{border-bottom-color:#2c3646}html[data-theme=dark] .fd,html[data-theme=dark] .loose{border-bottom-color:#2c3646}
+html[data-theme=dark] .pill{background:#2a3446;color:#e5e9f0}html[data-theme=dark] .pill.code{background:#17402a}html[data-theme=dark] .pill.prog{background:#4a3d12}html[data-theme=dark] .pill.fun{background:#4a1f33}html[data-theme=dark] .pill.free{background:#173a5a}html[data-theme=dark] .pill.logic{background:#4a3612}html[data-theme=dark] .pill.arch{background:#262f5c}html[data-theme=dark] .pill.math{background:#4a1f45}html[data-theme=dark] .pill.solo{background:#4a3612}
+html[data-theme=dark] .caphint{background:#16263f}html[data-theme=dark] .ld{background:#232d3d}html[data-theme=dark] .ld.over{background:#4a1d1d;color:#fca5a5}
+html[data-theme=dark] button.kick{background:#3a1a1a;color:#fca5a5;border-color:#7f1d1d}html[data-theme=dark] button.red-o{color:#fca5a5;border-color:#7f1d1d}
+html[data-theme=dark] table td,html[data-theme=dark] table th{border-color:#2c3646}
+html[data-theme=dark] .bar{background:#2a3446}
+html[data-theme=dark] #nslot{background:#e5e9f0;color:#0f141c}html[data-theme=dark] #nslot.assign{background:#3b82f6;color:#fff}html[data-theme=dark] #nslot.blitz,html[data-theme=dark] #nslot.help{background:#d97706;color:#fff}
+html[data-theme=dark] .st-assigned{color:#fbbf24}html[data-theme=dark] .st-review{color:#7aa7ff}
+html[data-theme=dark] a{color:#7aa7ff}
+html[data-theme=dark] .CodeMirror{background:#0b1018;color:#d6deeb;border-color:#364257}
+html[data-theme=dark] .CodeMirror-gutters{background:#111826;border-color:#2c3646}html[data-theme=dark] .CodeMirror-linenumber{color:#5c6a80}
+html[data-theme=dark] .CodeMirror-cursor{border-left-color:#fff}html[data-theme=dark] .CodeMirror-selected,html[data-theme=dark] .CodeMirror-focused .CodeMirror-selected{background:#2a3d5e}
+html[data-theme=dark] .cm-keyword{color:#c792ea}html[data-theme=dark] .cm-def,html[data-theme=dark] .cm-variable-2{color:#82aaff}html[data-theme=dark] .cm-string{color:#c3e88d}html[data-theme=dark] .cm-number{color:#f78c6c}html[data-theme=dark] .cm-comment{color:#6b778a}html[data-theme=dark] .cm-builtin{color:#ffcb6b}html[data-theme=dark] .cm-variable,html[data-theme=dark] .cm-property{color:#d6deeb}html[data-theme=dark] .cm-operator{color:#89ddff}
+html[data-theme=dark] .keyrow{background:#141b27}

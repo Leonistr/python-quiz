@@ -41,6 +41,18 @@ function renderFeed() {
 }
 function feedRead(tab) { if (!S) return; const k = 'pq_feed_' + S.code, F = SS.get(k) || []; F.forEach(f => { if (f.tab === tab) f.read = true; }); SS.set(k, F); }
 
+// ---------- тема (v14): системная по умолчанию, выбор в localStorage ----------
+const themeMQ = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
+function applyTheme() {
+  const pick = store.get('pq_theme'), dark = pick ? pick === 'dark' : !!(themeMQ && themeMQ.matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  const m = document.querySelector('meta[name=theme-color]'); if (m) m.content = dark ? '#161e2c' : '#1e2a44';
+  let b = document.getElementById('themebtn');
+  if (!b) { b = document.createElement('button'); b.id = 'themebtn'; b.onclick = () => { store.set('pq_theme', document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); applyTheme(); }; document.body.appendChild(b); }
+  b.textContent = dark ? '☀️' : '🌙'; b.title = dark ? 'Светлая тема' : 'Тёмная тема'; b.setAttribute('aria-label', b.title);
+}
+if (themeMQ) (themeMQ.addEventListener ? themeMQ.addEventListener('change', applyTheme) : themeMQ.addListener(applyTheme));
+applyTheme();
 // ---------- API ----------
 async function api(p, post) {
   let r;
@@ -60,7 +72,7 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js?v=13'); wReady = false;
+  worker = new Worker('pyworker.js?v=14'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
 const caseStrict = tk => /upper|lower|capitalize|title|регистр|заглав|строчн|прописн/i.test((tk.desc || '') + (tk.tests || ''));
