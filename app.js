@@ -75,7 +75,7 @@ async function act(p, btn) {
 // ---------- Python в Web Worker (можно прервать бесконечный цикл) ----------
 let worker = null, wReady = false, wSeq = 0; const wWait = {};
 function newWorker() {
-  worker = new Worker('pyworker.js?v=15'); wReady = false;
+  worker = new Worker('pyworker.js?v=16'); wReady = false;
   worker.onmessage = e => { if (e.data.ready) { wReady = true; return; } const cb = wWait[e.data.id]; if (cb) { delete wWait[e.data.id]; cb(e.data); } };
 }
 const caseStrict = tk => /upper|lower|capitalize|title|регистр|заглав|строчн|прописн/i.test((tk.desc || '') + (tk.tests || ''));
@@ -218,7 +218,7 @@ function renderTeacher(T) {
     <button class="sec" id="b-leave">Выйти из комнаты</button></div></div>
     ${s.loose.length ? `<div class="card"><b>Без команды (${s.loose.length}):</b>${s.loose.map(m => `<div class="loose">${esc(m.fio)} <span class="muted">${esc(m.group)}</span> <button class="kick" data-kick="${m.mid}" data-fio="${esc(m.fio)}">✖ Кикнуть</button></div>`).join('')}</div>` : ''}
     ${(s.kicked || []).length ? `<div class="muted" style="margin:4px 0">Удалены из комнаты: ${s.kicked.map(esc).join(', ')}</div>` : ''}
-    <div class="muted" style="margin:4px 0">${rHelp()}</div>${tBlitz(s)}${tFinished(s)}<div class="grid">${teams || '<div class="card">Команд пока нет</div>'}</div>`;
+    <div class="muted" style="margin:4px 0">${rHelp()}</div>${tBoss(s)}${tBlitz(s)}${tFinished(s)}<div class="grid">${teams || '<div class="card">Команд пока нет</div>'}</div>`;
   $('#b-el') && ($('#b-el').onclick = set('election'));
   $('#app').onclick = e => {
     const kb = e.target.closest('[data-kick]');
@@ -231,6 +231,7 @@ function renderTeacher(T) {
   $('#b-run') && ($('#b-run').onclick = set('running'));
   $('#b-close') && ($('#b-close').onclick = e => confirm('Завершить игру? Ответы больше не принимаются.') && set('closed')(e));
   $('#b-exp') && ($('#b-exp').onclick = e => act({ a: 'exportRes', code: T.code, key: T.key }, e.target).then(() => toast('Записано в листы Results и TeamResults')));
+  tBossWire(s, T);
   $('#b-leave').onclick = () => { if (confirm('Выйти? Вернуться в комнату будет нельзя (ключ сохраняется только в этом браузере).')) { store.del('pq_teacher'); stopPoll(); home(); } };
 }
 
@@ -269,7 +270,7 @@ function renderStudent() {
     <div class="h2">${t ? `${t.solo ? '🧑‍💻 соло' : '👥 ' + esc(t.name)} · <b class="rt">${t.rating || 0}%</b> <span class="muted">${t.pts} б.</span>${t.finished ? ' · 🏁' + t.finished.place : ''}` : esc(STATUS[s.status])}</div>`;
   renderSide(s); renderMe(s);
   if (t && t.captain && !t.solo) maybeReveal(s);
-  renderChat(s); renderBlitz(s); maybeFinale(s); renderFeed();
+  renderChat(s); renderBlitz(s); maybeFinale(s); renderFeed(); renderBoss(s, false);
   const main = $('#main');
   if (s.status !== 'running') { $('#mylist').innerHTML = ''; main._html = null; }
   if (s.status === 'closed') { main.innerHTML = board(s); return; }
@@ -527,10 +528,11 @@ function onEvent(e) {
     if (e.type === 'finish') notify(id, `🏁 ${/^Соло: /.test(e.team) ? e.team : 'Команда ' + e.team} закончила все задания (место ${e.place})`, { cls: 'fin' });
     return;
   }
+  if (e.type === 'boss' && e.phase === 'won') feed(id, '🏆 Босс повержен всей комнатой!');
   if (e.type === 'first') { if (e.fio !== S.me.fio) feed(id, `⚡ ${e.fio} (${team}) первым решил «${(TASK[e.task] || {}).title || e.task}»`); }
   else if (e.type === 'finish') { if (!(S.team && S.team.tid === e.tid)) feed(id, `🏁 ${/^Соло: /.test(e.team) ? e.team : 'Команда ' + e.team} закончила все задания (место ${e.place})`); }
 }
-function closeExtras() { ['#blitz', '#finale', '#blbadge', '#taskview', '#helpmodal'].forEach(q => { const x = $(q); if (x) x.remove(); }); }
+function closeExtras() { if (typeof bzClose === 'function') bzClose(); ['#blitz', '#finale', '#blbadge', '#taskview', '#helpmodal'].forEach(q => { const x = $(q); if (x) x.remove(); }); }
 const hhmm = at => new Date(at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 const REACT = ['👍', '😂', '🔥', '❓', '✅'];
 
